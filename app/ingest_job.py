@@ -52,4 +52,5 @@ async def run_ingest_job(req, job_id: str):
 
     # ✅ Отправляем результат в Core по фиксированному callback
     async with httpx.AsyncClient() as client:
+        print(result)
         await client.post(CORE_CALLBACK_URL, json=result)

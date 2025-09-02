@@ -8,8 +8,11 @@ genai.configure(api_key=GEMINI_API_KEY)
 async def embed_texts(texts: list[str]) -> list[list[float]]:
     embeddings = []
     for t in texts:
-        resp = client.models.embed_content(model="text-embedding-004", contents=[t])
-        embeddings.append(resp.embeddings[0])
+        resp = genai.embed_content(
+            model="models/text-embedding-004",
+            content=t
+        )
+        embeddings.append(resp["embedding"])
     return embeddings
 
 
