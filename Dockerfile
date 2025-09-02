@@ -22,7 +22,7 @@ COPY . .
 
 # --- Set env vars (можно переопределять через docker-compose/k8s) ---
 ENV PYTHONUNBUFFERED=1
-ENV CORE_CALLBACK_URL=http://core-service:8080/api/ingest/callback
+ENV CORE_CALLBACK_URL=http://core-service:8080/api/course/ingest/callback
 
 # --- Expose FastAPI port ---
 EXPOSE 8000
