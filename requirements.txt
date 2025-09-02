@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+psycopg[binary,pool]
+SQLAlchemy[asyncio]
+alembic
+httpx
+pgvector
+python-dotenv
+asyncpg
+google-generativeai
+pydantic
