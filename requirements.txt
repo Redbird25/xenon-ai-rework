@@ -7,5 +7,7 @@ httpx
 pgvector
 python-dotenv
 asyncpg
+protobuf
+google-genai
 google-generativeai
 pydantic
