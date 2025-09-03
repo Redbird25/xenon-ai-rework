@@ -1,13 +1,67 @@
+contextvars
+# Core dependencies
 fastapi
-uvicorn
-psycopg[binary,pool]
-SQLAlchemy[asyncio]
-alembic
-httpx
-pgvector
+uvicorn[standard]
+pydantic
+pydantic-settings
 python-dotenv
+
+# Database
+sqlalchemy[asyncio]
 asyncpg
-protobuf
+psycopg[binary,pool]
+pgvector
+alembic
+
+# LLM & RAG frameworks
+langchain
+langchain-community
+langchain-google-genai
+langchain-openai
+langchain-anthropic
+llama-index
+llama-index-core
+llama-index-llms-openai
+llama-index-llms-anthropic
+llama-index-embeddings-openai
+openai
+anthropic
+cohere
+
+# Embeddings & Vector stores
+sentence-transformers
+faiss-cpu
+chromadb
+qdrant-client
+
+# HTTP & async
+httpx
+aiohttp
+tenacity
+
+# Monitoring & Logging
+structlog
+prometheus-client
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+
+# Utils
+tiktoken
+beautifulsoup4
+lxml
+pypdf
+python-multipart
+redis
+aiocache
+nltk
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+
+# Google specific
 google-genai
 google-generativeai
-pydantic
+protobuf
