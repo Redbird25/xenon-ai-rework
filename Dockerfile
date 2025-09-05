@@ -29,7 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8000 \
+    PORT=8001 \
     UVICORN_WORKERS=2
 
 WORKDIR /app
@@ -56,7 +56,7 @@ USER appuser
 # Defaults (override via env)
 ENV CORE_CALLBACK_URL=http://core-service:8080/api/course/ingest/callback
 
-EXPOSE 8000
+EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS http://localhost:${PORT}/openapi.json > /dev/null || exit 1
