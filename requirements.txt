@@ -55,6 +55,7 @@ python-multipart
 redis
 aiocache
 nltk
+markdown
 
 # Testing
 pytest
