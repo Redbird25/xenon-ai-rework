@@ -54,7 +54,7 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser &&
 USER appuser
 
 # Defaults (override via env)
-ENV CORE_CALLBACK_URL=http://core-service:8080/api/course/ingest/callback
+ENV CORE_CALLBACK_URL=http://75.119.145.146:8082/api/course/ingest/callback
 
 EXPOSE 8000
 
