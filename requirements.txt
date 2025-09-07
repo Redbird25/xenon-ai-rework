@@ -55,6 +55,7 @@ python-multipart
 redis
 aiocache
 nltk
+markdown
 
 # Testing
 pytest
@@ -65,3 +66,4 @@ pytest-cov
 google-genai
 google-generativeai
 protobuf
+

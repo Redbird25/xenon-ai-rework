@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourcePerFileMappings">
-    <file url="file://$APPLICATION_CONFIG_DIR$/consoles/db/97d9e868-fa36-4bfe-9d37-0da130d8a8e7/console_1.sql" value="97d9e868-fa36-4bfe-9d37-0da130d8a8e7" />
-    <file url="file://$APPLICATION_CONFIG_DIR$/consoles/db/97d9e868-fa36-4bfe-9d37-0da130d8a8e7/console_2.sql" value="97d9e868-fa36-4bfe-9d37-0da130d8a8e7" />
     <file url="file://$PROJECT_DIR$/migrations/001_create_chunks.sql" value="97d9e868-fa36-4bfe-9d37-0da130d8a8e7" />
     <file url="file://$PROJECT_DIR$/migrations/002_update_schema_for_rag.sql" value="97d9e868-fa36-4bfe-9d37-0da130d8a8e7" />
     <file url="file://$PROJECT_DIR$/migrations/003_fix_hybrid_function.sql" value="97d9e868-fa36-4bfe-9d37-0da130d8a8e7" />
