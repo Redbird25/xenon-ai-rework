@@ -99,7 +99,7 @@ async def run_ingest_job(req, job_id: str):
                     lessons.append({
                         "lesson_id": str(uuid.uuid4()),
                         "title": f"{t}",
-                        "description": "",
+                        "description": f"This lesson covers {t}.",
                         "order": idx,
                         "min_mastery": 0.65
                     })
@@ -107,7 +107,7 @@ async def run_ingest_job(req, job_id: str):
                     "modules": [{
                         "module_id": module_id,
                         "title": req.title or "Module 1",
-                        "description": req.description or "",
+                        "description": (req.description or f"Overview of {req.title or 'Module 1'}."),
                         "order": 1,
                         "lessons": lessons
                     }]
@@ -177,7 +177,7 @@ async def run_ingest_job(req, job_id: str):
                     lessons.append({
                         "lesson_id": str(uuid.uuid4()),
                         "title": f"{t}",
-                        "description": "",
+                        "description": f"This lesson covers {t}.",
                         "order": idx,
                         "min_mastery": 0.65
                     })
@@ -185,7 +185,7 @@ async def run_ingest_job(req, job_id: str):
                     "modules": [{
                         "module_id": module_id,
                         "title": req.title or "Module 1",
-                        "description": req.description or "",
+                        "description": (req.description or f"Overview of {req.title or 'Module 1'}."),
                         "order": 1,
                         "lessons": lessons
                     }]

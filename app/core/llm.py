@@ -321,6 +321,10 @@ Ensure logical progression from basic to advanced concepts."""
                     module["title"] = f"Module {mi}"
                 else:
                     module["title"] = str(m_title).strip()
+                # Ensure module description (non-blank for downstream validation)
+                m_desc = module.get("description")
+                if not m_desc or not str(m_desc).strip():
+                    module["description"] = f"Overview of {module['title']}."
 
                 lessons = module.get("lessons", []) or []
                 normalized_lessons = []
@@ -347,8 +351,13 @@ Ensure logical progression from basic to advanced concepts."""
                             lesson["title"] = f"Lesson {li}"
                     else:
                         lesson["title"] = str(l_title).strip()
-                    # Ensure description and min mastery
-                    lesson.setdefault("description", "")
+                    # Ensure non-blank description
+                    l_desc = lesson.get("description")
+                    if not l_desc or not str(l_desc).strip():
+                        lesson["description"] = f"This lesson covers {lesson['title']}."
+                    else:
+                        lesson["description"] = str(l_desc).strip()
+                    # Ensure min mastery
                     lesson["min_mastery"] = 0.65
                     normalized_lessons.append(lesson)
 
