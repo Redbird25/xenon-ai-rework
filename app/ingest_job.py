@@ -90,28 +90,31 @@ async def run_ingest_job(req, job_id: str):
                 )
             except Exception:
                 # Minimal fallback route if JSON generation/parse fails
-                module_id = str(uuid.uuid4())
-                lessons = []
+                # Respect floors: >=3 modules, >=2 lessons per module; avoid filler beyond minimal structure
                 base_titles = [
-                    "Introduction", "Core Concepts", "Hands-on Practice", "Advanced Topics", "Summary & Next Steps"
+                    "Introduction", "Core Concepts", "Hands-on Practice",
+                    "Advanced Topics", "Summary & Next Steps", "Assessment & Review"
                 ]
-                for idx, t in enumerate(base_titles, start=1):
-                    lessons.append({
-                        "lesson_id": str(uuid.uuid4()),
-                        "title": f"{t}",
-                        "description": f"This lesson covers {t}.",
-                        "order": idx,
-                        "min_mastery": 0.65
+                modules = []
+                for m in range(1, 4):
+                    m_lessons = []
+                    # Two lessons per module from base titles
+                    for li, t in enumerate(base_titles[(m-1)*2:m*2], start=1):
+                        m_lessons.append({
+                            "lesson_id": str(uuid.uuid4()),
+                            "title": t,
+                            "description": f"This lesson covers {t}.",
+                            "order": li,
+                            "min_mastery": 0.65
+                        })
+                    modules.append({
+                        "module_id": str(uuid.uuid4()),
+                        "title": f"{req.title or 'Module'} - Part {m}",
+                        "description": (req.description or f"Overview of {req.title or ('Module Part ' + str(m))}."),
+                        "order": m,
+                        "lessons": m_lessons
                     })
-                route = {
-                    "modules": [{
-                        "module_id": module_id,
-                        "title": req.title or "Module 1",
-                        "description": (req.description or f"Overview of {req.title or 'Module 1'}."),
-                        "order": 1,
-                        "lessons": lessons
-                    }]
-                }
+                route = {"modules": modules}
             # No ingestion of generated content; we only return the route in callback
 
         else:
@@ -167,29 +170,30 @@ async def run_ingest_job(req, job_id: str):
                     req.lang
                 )
             except Exception:
-                # Minimal fallback route
-                module_id = str(uuid.uuid4())
-                lessons = []
+                # Minimal fallback route (same floors and logic as above)
                 base_titles = [
-                    "Introduction", "Core Concepts", "Hands-on Practice", "Advanced Topics", "Summary & Next Steps"
+                    "Introduction", "Core Concepts", "Hands-on Practice",
+                    "Advanced Topics", "Summary & Next Steps", "Assessment & Review"
                 ]
-                for idx, t in enumerate(base_titles, start=1):
-                    lessons.append({
-                        "lesson_id": str(uuid.uuid4()),
-                        "title": f"{t}",
-                        "description": f"This lesson covers {t}.",
-                        "order": idx,
-                        "min_mastery": 0.65
+                modules = []
+                for m in range(1, 4):
+                    m_lessons = []
+                    for li, t in enumerate(base_titles[(m-1)*2:m*2], start=1):
+                        m_lessons.append({
+                            "lesson_id": str(uuid.uuid4()),
+                            "title": t,
+                            "description": f"This lesson covers {t}.",
+                            "order": li,
+                            "min_mastery": 0.65
+                        })
+                    modules.append({
+                        "module_id": str(uuid.uuid4()),
+                        "title": f"{req.title or 'Module'} - Part {m}",
+                        "description": (req.description or f"Overview of {req.title or ('Module Part ' + str(m))}."),
+                        "order": m,
+                        "lessons": m_lessons
                     })
-                route = {
-                    "modules": [{
-                        "module_id": module_id,
-                        "title": req.title or "Module 1",
-                        "description": (req.description or f"Overview of {req.title or 'Module 1'}."),
-                        "order": 1,
-                        "lessons": lessons
-                    }]
-                }
+                route = {"modules": modules}
 
         # Pretty log the generated course before callback
         def _format_course_route(r: dict) -> str:

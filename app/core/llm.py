@@ -296,9 +296,17 @@ Description: {description}
 Resources: {', '.join(resources)}
 Language: {language}
 
-Generate a well-structured course with modules and lessons that covers all important topics.
-Include learning objectives, prerequisites, and difficulty levels.
-Ensure logical progression from basic to advanced concepts."""
+You decide how many modules and lessons are appropriate based on the topic and resources.
+CONSTRAINTS:
+- Minimum 3 modules total.
+- Minimum 2 lessons in every module.
+- Do NOT over-generate filler; if there is nothing meaningful to add, stop at a reasonable number.
+- Prefer 3–8 modules and 2–6 lessons per module when justified by content.
+- Avoid duplicate or placeholder titles; each title must be specific and content-based.
+- Each lesson must include a concise, non-empty description.
+
+Generate a well-structured course that covers the important topics with logical progression from fundamentals to advanced concepts.
+Include learning objectives implicitly within lesson descriptions when relevant. Keep the JSON concise and compliant with the schema (use 'order' fields)."""
 
         system_prompt = "You are an expert curriculum designer specializing in creating effective learning paths."
         
