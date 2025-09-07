@@ -29,7 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8000 \
+    PORT=8001 \
     UVICORN_WORKERS=2
 
 WORKDIR /app
@@ -54,7 +54,7 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser &&
 USER appuser
 
 # Defaults (override via env)
-ENV CORE_CALLBACK_URL=http://core-service:8080/api/course/ingest/callback
+ENV CORE_CALLBACK_URL=http://course-service:8082/api/course/ingest/callback
 
 EXPOSE 8000
 

@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 import aiohttp
+import tempfile
 from bs4 import BeautifulSoup
 import pypdf
 import markdown
@@ -118,7 +119,9 @@ class PDFDocumentLoader(DocumentLoader):
             # Download if URL
             if source.startswith(('http://', 'https://')):
                 content = await self._download_file(source)
-                temp_path = Path(f"/tmp/{hashlib.md5(source.encode()).hexdigest()}.pdf")
+                tmp_dir = Path(tempfile.gettempdir())
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                temp_path = tmp_dir / f"{hashlib.md5(source.encode()).hexdigest()}.pdf"
                 temp_path.write_bytes(content)
                 source = str(temp_path)
             

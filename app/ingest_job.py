@@ -62,66 +62,134 @@ async def run_ingest_job(req, job_id: str):
     try:
         # Initialize services
         ingest_service = get_ingest_service()
-        
-        # Fetch all resources concurrently
-        logger.info("Fetching resources", count=len(req.resources))
-        documents = await fetch_resources(req.resources)
-        
-        # Process documents
+
         processed_count = 0
         failed_count = 0
         total_chunks = 0
         errors = []
-        
-        for i, doc in enumerate(documents):
+        route = None
+
+        # Fetch resources if provided
+        documents = []
+        if req.resources and len(req.resources) > 0:
+            logger.info("Fetching resources", count=len(req.resources))
+            documents = await fetch_resources(req.resources)
+
+        if not documents:
+            # Fallback: no resources available -> generate course route only (titles + descriptions), no content ingest
+            logger.info("No resources available, generating course route via LLM (titles + descriptions only)")
+
+            # Generate a course route (with local fallback)
             try:
-                # Update progress
-                async with async_session() as session:
-                    job = await session.get(IngestJob, job_id)
-                    if job:
-                        job.processed_items = i + 1
-                        await session.commit()
-                
-                # Ingest document
-                chunks_count = await ingest_service.ingest_text(
-                    course_id=req.course_id,
-                    raw_text=doc.get("content", ""),
-                    source_ref=doc.get("source"),
-                    language=req.lang,
-                    metadata={
-                        "document_type": doc.get("document_type"),
-                        "title": doc.get("title"),
-                        **doc.get("metadata", {})
-                    }
+                route = await generate_course_route(
+                    req.course_id,
+                    req.title,
+                    req.description,
+                    req.resources,
+                    req.lang
                 )
-                
-                processed_count += 1
-                total_chunks += chunks_count
-                
-                logger.info("Document processed",
-                           document=doc.get("source"),
-                           chunks_created=chunks_count,
-                           progress=f"{i+1}/{len(documents)}")
-                
-            except Exception as e:
-                failed_count += 1
-                errors.append({
-                    "document": doc.get("source", f"document_{i}"),
-                    "error": str(e)
-                })
-                logger.error("Document processing failed",
-                           document=doc.get("source"),
-                           error=str(e))
-        
-        # Generate course route
-        logger.info("Generating course route")
-        route = await generate_course_route(
-            req.course_id,
-            req.title,
-            req.description,
-            req.resources,
-            req.lang
-        )
+            except Exception:
+                # Minimal fallback route if JSON generation/parse fails
+                module_id = str(uuid.uuid4())
+                lessons = []
+                base_titles = [
+                    "Introduction", "Core Concepts", "Hands-on Practice", "Advanced Topics", "Summary & Next Steps"
+                ]
+                for idx, t in enumerate(base_titles, start=1):
+                    lessons.append({
+                        "lesson_id": str(uuid.uuid4()),
+                        "title": f"{t}",
+                        "description": "",
+                        "order": idx,
+                        "min_mastery": 0.65
+                    })
+                route = {
+                    "modules": [{
+                        "module_id": module_id,
+                        "title": req.title or "Module 1",
+                        "description": req.description or "",
+                        "order": 1,
+                        "lessons": lessons
+                    }]
+                }
+            # No ingestion of generated content; we only return the route in callback
+
+        else:
+            # Process fetched documents
+            for i, doc in enumerate(documents):
+                try:
+                    # Update progress
+                    async with async_session() as session:
+                        job = await session.get(IngestJob, job_id)
+                        if job:
+                            job.processed_items = i + 1
+                            await session.commit()
+
+                    # Ingest document
+                    chunks_count = await ingest_service.ingest_text(
+                        course_id=req.course_id,
+                        raw_text=doc.get("content", ""),
+                        source_ref=doc.get("source"),
+                        language=req.lang,
+                        metadata={
+                            "document_type": doc.get("document_type"),
+                            "title": doc.get("title"),
+                            **doc.get("metadata", {})
+                        }
+                    )
+
+                    processed_count += 1
+                    total_chunks += chunks_count
+
+                    logger.info(
+                        "Document processed",
+                        document=doc.get("source"),
+                        chunks_created=chunks_count,
+                        progress=f"{i+1}/{len(documents)}"
+                    )
+
+                except Exception as e:
+                    failed_count += 1
+                    errors.append({
+                        "document": doc.get("source", f"document_{i}"),
+                        "error": str(e)
+                    })
+                    logger.error("Document processing failed", document=doc.get("source"), error=str(e))
+
+            # Generate course route (normal path when resources exist)
+            logger.info("Generating course route")
+            try:
+                route = await generate_course_route(
+                    req.course_id,
+                    req.title,
+                    req.description,
+                    req.resources,
+                    req.lang
+                )
+            except Exception:
+                # Minimal fallback route
+                module_id = str(uuid.uuid4())
+                lessons = []
+                base_titles = [
+                    "Introduction", "Core Concepts", "Hands-on Practice", "Advanced Topics", "Summary & Next Steps"
+                ]
+                for idx, t in enumerate(base_titles, start=1):
+                    lessons.append({
+                        "lesson_id": str(uuid.uuid4()),
+                        "title": f"{t}",
+                        "description": "",
+                        "order": idx,
+                        "min_mastery": 0.65
+                    })
+                route = {
+                    "modules": [{
+                        "module_id": module_id,
+                        "title": req.title or "Module 1",
+                        "description": req.description or "",
+                        "order": 1,
+                        "lessons": lessons
+                    }]
+                }
 
         # Pretty log the generated course before callback
         def _format_course_route(r: dict) -> str:

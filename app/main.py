@@ -16,7 +16,7 @@ from app.core.logging import get_logger, setup_logging, request_id_var
 from app.core.exceptions import AIIngestException
 from app.routes import ingest_routes, search_routes
 from app.db import engine
-from app.config import settings
+ 
 
 logger = get_logger(__name__)
 
@@ -36,37 +36,8 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(lambda sync_conn: IngestJob.__table__.create(sync_conn, checkfirst=True))
             await conn.run_sync(lambda sync_conn: Document.__table__.create(sync_conn, checkfirst=True))
             await conn.run_sync(lambda sync_conn: SearchQuery.__table__.create(sync_conn, checkfirst=True))
-
-            # Ensure required columns on lesson_chunks (backward-compatible with initial schema)
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS document_id UUID"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS course_id UUID"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(100)"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS chunk_index INTEGER"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS chunk_size INTEGER"))
-            await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN IF NOT EXISTS search_vector TEXT"))
-
-            # Helpful indexes (idempotent)
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_lesson_chunks_course_id ON lesson_chunks(course_id)"))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_lesson_chunks_metadata ON lesson_chunks USING gin(metadata)"))
-
-            # Relax legacy NOT NULL on lesson_id if present (backward compatibility)
-            try:
-                await conn.execute(text("ALTER TABLE lesson_chunks ALTER COLUMN lesson_id DROP NOT NULL"))
-            except Exception:
-                pass
-
-            # Align embedding vector dimension with current configuration (768 by default)
-            try:
-                await conn.execute(text("ALTER TABLE lesson_chunks ALTER COLUMN embedding TYPE vector(768)"))
-            except Exception:
-                # Fallback: recreate the column if alter fails (may drop existing data in dev)
-                try:
-                    await conn.execute(text("ALTER TABLE lesson_chunks DROP COLUMN IF EXISTS embedding"))
-                    await conn.execute(text("ALTER TABLE lesson_chunks ADD COLUMN embedding vector(768)"))
-                except Exception:
-                    pass
+            # Note: Schema migrations for lesson_chunks are handled via migration files.
+            # Avoid destructive or incompatible DDL at runtime.
     except Exception as e:
         logger.error("Schema ensure failed", error=str(e))
     
@@ -199,7 +170,7 @@ async def readiness():
     try:
         # Check database
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         
         return {
             "status": "ready",

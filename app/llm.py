@@ -32,3 +32,19 @@ async def generate_course_route(course_id: str, title: str, description: str, re
                 lesson["min_mastery"] = 0.65
     
     return route
+
+
+async def generate_lesson_content(
+    course_title: str,
+    course_description: str,
+    lesson_title: str,
+    lang: str = "en"
+) -> str:
+    """Legacy wrapper to generate standalone lesson content via core LLM provider."""
+    generator = get_course_generator()
+    return await generator.generate_lesson_content(
+        course_title=course_title,
+        course_description=course_description,
+        lesson_title=lesson_title,
+        language=lang
+    )

@@ -14,6 +14,7 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain.schema import Document
 from pydantic import BaseModel, Field
 import structlog
+import re
 
 from app.config import settings
 
@@ -100,6 +101,40 @@ class LangChainLLMProvider(LLMProvider):
             logger.error("LLM generation failed", error=str(e), model=settings.llm_model)
             raise
     
+    def _strip_code_fences(self, text: str) -> str:
+        """Remove markdown code fences and extract JSON body if present."""
+        if not text:
+            return text
+        # Match ```json ... ``` or ``` ... ```
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+        if fence_match:
+            return fence_match.group(1).strip()
+        return text.strip()
+
+    def _coerce_to_json(self, raw: str) -> Dict[str, Any]:
+        """Best-effort conversion of model output to JSON dict."""
+        raw = (raw or "").strip()
+        # First, strip code fences
+        candidate = self._strip_code_fences(raw)
+        # Try direct json
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+        # Extract first {...} block
+        try:
+            start = candidate.find('{')
+            end = candidate.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                inner = candidate[start:end+1]
+                return json.loads(inner)
+        except Exception:
+            pass
+        # As a last resort, replace single quotes and trailing commas (very naive)
+        naive = candidate.replace("'", '"')
+        naive = re.sub(r",\s*([}\]])", r"\1", naive)
+        return json.loads(naive)
+
     async def generate_json(
         self, 
         prompt: str, 
@@ -113,17 +148,41 @@ class LangChainLLMProvider(LLMProvider):
             messages.append(SystemMessage(content=system_prompt))
         
         # Add schema instruction to prompt
-        enhanced_prompt = f"{prompt}\n\nRespond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"
+        enhanced_prompt = (
+            f"{prompt}\n\n"
+            f"Respond with valid JSON matching this schema (no comments, no prose, no code fences):\n"
+            f"{json.dumps(schema, indent=2)}\n"
+            f"Output ONLY the JSON object."
+        )
         messages.append(HumanMessage(content=enhanced_prompt))
         
         try:
             # Avoid provider-specific structured output features that can fail (e.g., Gemini tools).
             # Ask for JSON in the prompt and parse the model output.
             response = await self.model.ainvoke(messages, **kwargs)
-            return self.json_parser.parse(response.content)
+            try:
+                # First try the built-in parser for strictness
+                return self.json_parser.parse(response.content)
+            except Exception:
+                # Fallback to tolerant parsing
+                return self._coerce_to_json(response.content)
         except Exception as e:
             logger.error("JSON generation failed", error=str(e), model=settings.llm_model)
-            raise
+            # Attempt a single repair round-trip with a strict instruction
+            try:
+                repair_messages = []
+                if system_prompt:
+                    repair_messages.append(SystemMessage(content=system_prompt))
+                repair_messages.append(HumanMessage(content=(
+                    "Return ONLY a valid JSON that matches the schema above. "
+                    "Do not include any markdown or commentary. "
+                    "Fix and output the JSON for this content:\n\n" + (enhanced_prompt)
+                )))
+                repaired = await self.model.ainvoke(repair_messages, **kwargs)
+                return self._coerce_to_json(repaired.content)
+            except Exception as e2:
+                logger.error("JSON repair failed", error=str(e2), model=settings.llm_model)
+                raise
     
     async def stream(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> AsyncIterator[str]:
         """Stream text response"""
@@ -272,6 +331,40 @@ Ensure logical progression from basic to advanced concepts."""
             return route
         except Exception as e:
             logger.error("Route generation failed", error=str(e), course_id=course_id)
+            raise
+
+    async def generate_lesson_content(
+        self,
+        course_title: str,
+        course_description: str,
+        lesson_title: str,
+        language: str = "en",
+        target_length_words: int = 800
+    ) -> str:
+        """Generate standalone lesson content without using RAG"""
+        system_prompt = (
+            "You are an expert educator. Create high-quality lesson content "
+            "for the specified course and lesson in the requested language. "
+            "Content must be self-contained (do not assume external materials)."
+        )
+
+        user_prompt = (
+            f"Course: {course_title}\n"
+            f"Description: {course_description}\n"
+            f"Lesson: {lesson_title}\n"
+            f"Language: {language}\n\n"
+            "Write comprehensive lesson content with:\n"
+            "- Clear introduction and learning objectives\n"
+            "- Main sections with explanations and examples\n"
+            "- Code snippets or tables when relevant\n"
+            "- A short summary and 3–5 practice questions\n"
+            f"Aim for about {target_length_words}–{int(target_length_words*1.5)} words."
+        )
+
+        try:
+            return (await self.llm.generate(user_prompt, system_prompt=system_prompt)).strip()
+        except Exception as e:
+            logger.error("Lesson content generation failed", error=str(e), lesson=lesson_title)
             raise
 
 

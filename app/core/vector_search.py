@@ -237,29 +237,35 @@ class VectorSearchEngine:
             
             rows = result.fetchall()
             
-            # Get full chunk data and calculate combined scores
-            search_results = []
+            # Prefetch metadata for all rows to avoid N+1
+            id_list = [r.id for r in rows]
+            meta_map: Dict[int, Dict[str, Any]] = {}
+            if id_list:
+                stmt = select(LessonChunk.id, LessonChunk.meta)
+                stmt = stmt.where(LessonChunk.id.in_(id_list))
+                meta_rows = await session.execute(stmt)
+                for mid, mval in meta_rows.all():
+                    meta_map[int(mid)] = mval or {}
+
+            # Calculate combined scores and build results
+            search_results: List[SearchResult] = []
             for row in rows:
-                # Get full chunk data
-                chunk = await session.get(LessonChunk, row.id)
-                if not chunk:
-                    continue
-                
-                # Calculate combined score
                 vector_score = row.similarity
                 text_score = row.rank
-                
+
                 # Normalize text score to 0-1 range
-                if text_score > 0:
+                if text_score and text_score > 0:
                     text_score = min(text_score / 5.0, 1.0)  # Assuming max rank ~5
-                
+                else:
+                    text_score = 0.0
+
                 combined_score = alpha * vector_score + (1 - alpha) * text_score
-                
+
                 search_results.append(SearchResult(
-                    chunk_id=chunk.id,
-                    content=chunk.chunk_text,
-                    source_ref=chunk.source_ref,
-                    metadata=chunk.meta or {},
+                    chunk_id=row.id,
+                    content=row.chunk_text,
+                    source_ref=row.source_ref,
+                    metadata=meta_map.get(int(row.id), {}),
                     similarity_score=float(vector_score),
                     text_score=float(text_score),
                     combined_score=float(combined_score)

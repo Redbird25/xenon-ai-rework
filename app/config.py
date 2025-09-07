@@ -36,16 +36,16 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     
     # Database
-    database_url: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@75.119.145.146:5433/xenon_ai_db",
+    database_url: Optional[str] = Field(
+        default=None,
         description="PostgreSQL connection URL with pgvector support"
     )
     database_pool_size: int = Field(default=10)
     database_echo: bool = Field(default=False)
     
     # API Keys
-    gemini_api_key: str = Field(
-        default="AIzaSyBAkY3izlayY0oQtbEk46_tz7Bss0fQLd8",
+    gemini_api_key: Optional[str] = Field(
+        default=None,
         description="Google Gemini API key"
     )
     openai_api_key: Optional[str] = Field(default=None)
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     
     # External Services
     core_callback_url: str = Field(
-        default="http://75.119.145.146:8082/api/course/ingest/callback",
+        default="http://course-service:8082/api/course/ingest/callback",
         description="URL for job completion callbacks"
     )
     
@@ -94,11 +94,17 @@ class Settings(BaseSettings):
         if v >= chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
         return v
-    
+
     @field_validator("llm_temperature")
     def validate_temperature(cls, v):
         if not 0 <= v <= 2:
             raise ValueError("temperature must be between 0 and 2")
+        return v
+
+    @field_validator("database_url")
+    def validate_database_url(cls, v):
+        if not v:
+            raise ValueError("DATABASE_URL must be provided via environment")
         return v
     
     @property
