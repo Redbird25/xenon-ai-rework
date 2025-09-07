@@ -1,0 +1,78 @@
+            # Use structured JSON generation for robustness
+            schema = {
+                "type": "object",
+                "properties": {
+                    "enhanced_query": {"type": "string"},
+                    "keywords": {"type": "array", "items": {"type": "string"}},
+                    "concepts": {"type": "array", "items": {"type": "string"}},
+                    "filters": {"type": "object"}
+                },
+                "required": ["enhanced_query", "keywords", "concepts", "filters"]
+            }
+
+            system_prompt = (
+                "You are a query enhancement assistant. Your task is to:\n"
+                "1. Expand user queries with relevant synonyms and related terms\n"
+                "2. Identify key concepts and entities\n"
+                "3. Generate alternative phrasings\n"
+                "4. Extract search keywords\n"
+                "Return only a compact JSON object."
+            )
+
+            user_prompt = f"Enhance this query: {query}"
+
+            result = await self.llm.generate_json(user_prompt, schema, system_prompt)
+
+            logger.info("Query enhanced", 
+                       original=query,
+                       keywords=len(result.get("keywords", [])))
+
+            return result
+        except Exception as e:
+            logger.error("Query enhancement failed", error=str(e))
+            # Return original query if enhancement fails
+            return {
+                "enhanced_query": query,
+                "keywords": query.split(),
+                "concepts": [],
+                "filters": {}
+            }
+
+
+# Singleton instances
+_llm_provider = None
+_document_cleaner = None
+_course_generator = None
+_query_processor = None
+
+
+def get_llm_provider() -> LLMProvider:
+    """Get singleton LLM provider instance"""
+    global _llm_provider
+    if _llm_provider is None:
+        _llm_provider = LangChainLLMProvider()
+    return _llm_provider
+
+
+def get_document_cleaner() -> DocumentCleaner:
+    """Get singleton document cleaner instance"""
+    global _document_cleaner
+    if _document_cleaner is None:
+        _document_cleaner = DocumentCleaner()
+    return _document_cleaner
+
+
+def get_course_generator() -> CourseRouteGenerator:
+    """Get singleton course generator instance"""
+    global _course_generator
+    if _course_generator is None:
+        _course_generator = CourseRouteGenerator()
+    return _course_generator
+
+
+def get_query_processor() -> RAGQueryProcessor:
+    """Get singleton query processor instance"""
+    global _query_processor
+    if _query_processor is None:
+        _query_processor = RAGQueryProcessor()
+    return _query_processor

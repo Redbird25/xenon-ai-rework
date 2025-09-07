@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     
     # External Services
     core_callback_url: str = Field(
-        default="http://course-service:8082/api/course/ingest/callback",
+        default="http://75.119.145.146:8082/api/course/ingest/callback",
         description="URL for job completion callbacks"
     )
     

@@ -304,26 +304,56 @@ Ensure logical progression from basic to advanced concepts."""
         
         try:
             route = await self.llm.generate_json(prompt, schema, system_prompt)
-            
-            # Normalize + fill required fields
+
+            # Normalize + fill required fields, ensure required titles exist
             import uuid
-            for module in route.get("modules", []):
+            modules = route.get("modules", []) or []
+            for mi, module in enumerate(modules, start=1):
                 if not module.get("module_id"):
                     module["module_id"] = str(uuid.uuid4())
-                # ensure 'order'
+                # Ensure 'order'
                 if "order" not in module and "position" in module:
                     module["order"] = module.get("position")
-                module.setdefault("order", 1)
-                for lesson in module.get("lessons", []):
+                module.setdefault("order", mi)
+                # Ensure module title
+                m_title = module.get("title") or module.get("name") or module.get("heading")
+                if not m_title or not str(m_title).strip():
+                    module["title"] = f"Module {mi}"
+                else:
+                    module["title"] = str(m_title).strip()
+
+                lessons = module.get("lessons", []) or []
+                normalized_lessons = []
+                for li, lesson in enumerate(lessons, start=1):
+                    if not isinstance(lesson, dict):
+                        # Skip invalid lesson entries
+                        continue
                     if not lesson.get("lesson_id"):
                         lesson["lesson_id"] = str(uuid.uuid4())
+                    # Ensure 'order'
                     if "order" not in lesson and "position" in lesson:
                         lesson["order"] = lesson.get("position")
-                    lesson.setdefault("order", 1)
+                    lesson.setdefault("order", li)
+                    # Ensure lesson title
+                    l_title = lesson.get("title") or lesson.get("name") or lesson.get("heading")
+                    if not l_title or not str(l_title).strip():
+                        # Try derive from description first
+                        desc = str(lesson.get("description", "")).strip()
+                        if desc:
+                            words = desc.split()
+                            candidate = " ".join(words[:6]).strip()
+                            lesson["title"] = candidate if candidate else f"Lesson {li}"
+                        else:
+                            lesson["title"] = f"Lesson {li}"
+                    else:
+                        lesson["title"] = str(l_title).strip()
+                    # Ensure description and min mastery
                     lesson.setdefault("description", "")
-                    # Always enforce constant min_mastery
                     lesson["min_mastery"] = 0.65
-            
+                    normalized_lessons.append(lesson)
+
+                module["lessons"] = normalized_lessons
+
             logger.info("Course route generated", 
                        course_id=course_id,
                        modules=len(route.get("modules", [])))

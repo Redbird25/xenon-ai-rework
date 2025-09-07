@@ -1,0 +1,40 @@
+
+
+class DocumentCleaner:
+    """Clean and preprocess documents using LLM"""
+    
+    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+        self.llm = llm_provider or LangChainLLMProvider()
+        self.cleaning_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a document cleaning assistant. Your task is to:
+1. Remove all navigation elements, headers, footers, ads, and UI components
+2. Extract only the main content (articles, tutorials, documentation)
+3. Preserve code blocks, tables, and important formatting
+4. Return clean, well-formatted text suitable for learning
+
+Output only the cleaned content without any explanations."""),
+            ("human", "Clean this document:\n\n{document}")
+        ])
+    
+    async def clean_document(self, raw_text: str, doc_type: str = "web") -> str:
+        """Clean raw document text"""
+        try:
+            # Truncate if too long
+            if len(raw_text) > 12000:
+                raw_text = raw_text[:12000] + "..."
+            
+            prompt = self.cleaning_prompt.format(document=raw_text)
+            cleaned = await self.llm.generate(str(prompt))
+            
+            logger.info("Document cleaned", 
+                       original_length=len(raw_text), 
+                       cleaned_length=len(cleaned),
+                       doc_type=doc_type)
+            
+            return cleaned.strip()
+        except Exception as e:
+            logger.error("Document cleaning failed", error=str(e))
+            # Return original if cleaning fails
+            return raw_text
+
+

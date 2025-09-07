@@ -1,0 +1,150 @@
+2. Extract only the main content (articles, tutorials, documentation)
+3. Preserve code blocks, tables, and important formatting
+4. Return clean, well-formatted text suitable for learning
+
+Output only the cleaned content without any explanations."""),
+            ("human", "Clean this document:\n\n{document}")
+        ])
+    
+    async def clean_document(self, raw_text: str, doc_type: str = "web") -> str:
+        """Clean raw document text"""
+        try:
+            # Truncate if too long
+            if len(raw_text) > 12000:
+                raw_text = raw_text[:12000] + "..."
+            
+            prompt = self.cleaning_prompt.format(document=raw_text)
+            cleaned = await self.llm.generate(str(prompt))
+            
+            logger.info("Document cleaned", 
+                       original_length=len(raw_text), 
+                       cleaned_length=len(cleaned),
+                       doc_type=doc_type)
+            
+            return cleaned.strip()
+        except Exception as e:
+            logger.error("Document cleaning failed", error=str(e))
+            # Return original if cleaning fails
+            return raw_text
+
+
+class CourseRouteGenerator:
+    """Generate course structure using LLM"""
+    
+    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+        self.llm = llm_provider or LangChainLLMProvider()
+    
+    async def generate_route(
+        self,
+        course_id: str,
+        title: str,
+        description: str,
+        resources: List[str],
+        language: str = "en"
+    ) -> Dict[str, Any]:
+        """Generate course route structure"""
+        
+        # Define the schema for course structure to match callback contract (using 'order')
+        schema = {
+            "type": "object",
+            "properties": {
+                "modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "module_id": {"type": "string"},
+                            "title": {"type": "string"},
+                            "order": {"type": "integer"},
+                            "description": {"type": "string"},
+                            "lessons": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "lesson_id": {"type": "string"},
+                                        "title": {"type": "string"},
+                                        "description": {"type": "string"},
+                                        "order": {"type": "integer"},
+                                        "min_mastery": {"type": "number"}
+                                    },
+                                    "required": ["lesson_id", "title", "description", "order", "min_mastery"]
+                                }
+                            }
+                        },
+                        "required": ["module_id", "title", "order", "lessons"]
+                    }
+                }
+            },
+            "required": ["modules"]
+        }
+        
+        prompt = f"""Create a comprehensive course structure for:
+Course ID: {course_id}
+Title: {title}
+Description: {description}
+Resources: {', '.join(resources)}
+Language: {language}
+
+Generate a well-structured course with modules and lessons that covers all important topics.
+Include learning objectives, prerequisites, and difficulty levels.
+Ensure logical progression from basic to advanced concepts."""
+
+        system_prompt = "You are an expert curriculum designer specializing in creating effective learning paths."
+        
+        try:
+            route = await self.llm.generate_json(prompt, schema, system_prompt)
+            
+            # Normalize + fill required fields
+            import uuid
+            for module in route.get("modules", []):
+                if not module.get("module_id"):
+                    module["module_id"] = str(uuid.uuid4())
+                # ensure 'order'
+                if "order" not in module and "position" in module:
+                    module["order"] = module.get("position")
+                module.setdefault("order", 1)
+                for lesson in module.get("lessons", []):
+                    if not lesson.get("lesson_id"):
+                        lesson["lesson_id"] = str(uuid.uuid4())
+                    if "order" not in lesson and "position" in lesson:
+                        lesson["order"] = lesson.get("position")
+                    lesson.setdefault("order", 1)
+                    lesson.setdefault("description", "")
+                    # Always enforce constant min_mastery
+                    lesson["min_mastery"] = 0.65
+            
+            logger.info("Course route generated", 
+                       course_id=course_id,
+                       modules=len(route.get("modules", [])))
+            
+            return route
+        except Exception as e:
+            logger.error("Route generation failed", error=str(e), course_id=course_id)
+            raise
+
+
+class RAGQueryProcessor:
+    """Process queries for RAG system"""
+    
+    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+        self.llm = llm_provider or LangChainLLMProvider()
+        self.query_enhancement_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a query enhancement assistant. Your task is to:
+1. Expand user queries with relevant synonyms and related terms
+2. Identify key concepts and entities
+3. Generate alternative phrasings
+4. Extract search keywords
+
+Return a JSON with: {
+    "enhanced_query": "expanded query with more context",
+    "keywords": ["key", "search", "terms"],
+    "concepts": ["main", "concepts"],
+    "filters": {"language": "en", "difficulty": "beginner"}
+}"""),
+            ("human", "Enhance this query: {query}")
+        ])
+    
+    async def enhance_query(self, query: str) -> Dict[str, Any]:
+        """Enhance user query for better search results"""
+        try:

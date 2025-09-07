@@ -1,0 +1,151 @@
+"""
+Modern LLM module using LangChain with support for multiple providers
+"""
+from typing import Dict, Any, Optional, List, AsyncIterator
+from abc import ABC, abstractmethod
+import json
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.callbacks import AsyncCallbackHandler
+from langchain.schema import Document
+from pydantic import BaseModel, Field
+import structlog
+
+from app.config import settings
+
+logger = structlog.get_logger(__name__)
+
+
+class LLMProvider(ABC):
+    """Abstract base class for LLM providers"""
+    
+    @abstractmethod
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate text response"""
+        pass
+    
+    @abstractmethod
+    async def generate_json(self, prompt: str, schema: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Generate structured JSON response"""
+        pass
+    
+    @abstractmethod
+    async def stream(self, prompt: str, **kwargs) -> AsyncIterator[str]:
+        """Stream text response"""
+        pass
+
+
+class LangChainLLMProvider(LLMProvider):
+    """LangChain-based LLM provider with multi-model support"""
+    
+    def __init__(self):
+        self.model = self._initialize_model()
+        self.json_parser = JsonOutputParser()
+        self.str_parser = StrOutputParser()
+        
+    def _initialize_model(self):
+        """Initialize the appropriate LLM based on configuration"""
+        if "gemini" in settings.llm_model.lower():
+            return ChatGoogleGenerativeAI(
+                model=settings.llm_model,
+                google_api_key=settings.gemini_api_key,
+                temperature=settings.llm_temperature,
+                max_output_tokens=settings.llm_max_tokens,
+                timeout=settings.llm_timeout,
+                max_retries=3
+            )
+        elif "gpt" in settings.llm_model.lower() and settings.openai_api_key:
+            return ChatOpenAI(
+                model=settings.llm_model,
+                openai_api_key=settings.openai_api_key,
+                temperature=settings.llm_temperature,
+                max_tokens=settings.llm_max_tokens,
+                timeout=settings.llm_timeout,
+                max_retries=3
+            )
+        elif "claude" in settings.llm_model.lower() and settings.anthropic_api_key:
+            return ChatAnthropic(
+                model=settings.llm_model,
+                anthropic_api_key=settings.anthropic_api_key,
+                temperature=settings.llm_temperature,
+                max_tokens=settings.llm_max_tokens,
+                timeout=settings.llm_timeout,
+                max_retries=3
+            )
+        else:
+            # Default to Gemini
+            return ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash",
+                google_api_key=settings.gemini_api_key,
+                temperature=settings.llm_temperature,
+                max_output_tokens=settings.llm_max_tokens,
+                timeout=settings.llm_timeout
+            )
+    
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+        """Generate text response using LangChain"""
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=prompt))
+        
+        try:
+            response = await self.model.ainvoke(messages, **kwargs)
+            return response.content
+        except Exception as e:
+            logger.error("LLM generation failed", error=str(e), model=settings.llm_model)
+            raise
+    
+    async def generate_json(
+        self, 
+        prompt: str, 
+        schema: Dict[str, Any],
+        system_prompt: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Generate structured JSON response"""
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        
+        # Add schema instruction to prompt
+        enhanced_prompt = f"{prompt}\n\nRespond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"
+        messages.append(HumanMessage(content=enhanced_prompt))
+        
+        try:
+            # Avoid provider-specific structured output features that can fail (e.g., Gemini tools).
+            # Ask for JSON in the prompt and parse the model output.
+            response = await self.model.ainvoke(messages, **kwargs)
+            return self.json_parser.parse(response.content)
+        except Exception as e:
+            logger.error("JSON generation failed", error=str(e), model=settings.llm_model)
+            raise
+    
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> AsyncIterator[str]:
+        """Stream text response"""
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=prompt))
+        
+        try:
+            async for chunk in self.model.astream(messages, **kwargs):
+                if chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error("LLM streaming failed", error=str(e), model=settings.llm_model)
+            raise
+
+
+class DocumentCleaner:
+    """Clean and preprocess documents using LLM"""
+    
+    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+        self.llm = llm_provider or LangChainLLMProvider()
+        self.cleaning_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a document cleaning assistant. Your task is to:
+1. Remove all navigation elements, headers, footers, ads, and UI components
