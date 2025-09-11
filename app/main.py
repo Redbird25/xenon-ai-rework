@@ -9,12 +9,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from sqlalchemy import text
-from app.models import IngestJob, Document, SearchQuery
+from app.models import IngestJob, Document, SearchQuery, MaterializedLesson
 
 from app.config import settings
 from app.core.logging import get_logger, setup_logging, request_id_var
 from app.core.exceptions import AIIngestException
-from app.routes import ingest_routes, search_routes
+from app.routes import ingest_routes, search_routes, lesson_routes, test_routes
 from app.db import engine
  
 
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(lambda sync_conn: IngestJob.__table__.create(sync_conn, checkfirst=True))
             await conn.run_sync(lambda sync_conn: Document.__table__.create(sync_conn, checkfirst=True))
             await conn.run_sync(lambda sync_conn: SearchQuery.__table__.create(sync_conn, checkfirst=True))
+            await conn.run_sync(lambda sync_conn: MaterializedLesson.__table__.create(sync_conn, checkfirst=True))
             # Note: Schema migrations for lesson_chunks are handled via migration files.
             # Avoid destructive or incompatible DDL at runtime.
     except Exception as e:
@@ -151,6 +152,8 @@ async def handle_generic_exception(request: Request, exc: Exception):
 # Include routers
 app.include_router(ingest_routes.router)
 app.include_router(search_routes.router)
+app.include_router(lesson_routes.router)
+app.include_router(test_routes.router)
 
 
 @app.get("/health")

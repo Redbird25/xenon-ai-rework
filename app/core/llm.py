@@ -51,14 +51,23 @@ class LangChainLLMProvider(LLMProvider):
     def _initialize_model(self):
         """Initialize the appropriate LLM based on configuration"""
         if "gemini" in settings.llm_model.lower():
-            return ChatGoogleGenerativeAI(
-                model=settings.llm_model,
-                google_api_key=settings.gemini_api_key,
-                temperature=settings.llm_temperature,
-                max_output_tokens=settings.llm_max_tokens,
-                timeout=settings.llm_timeout,
-                max_retries=3
-            )
+            try:
+                return ChatGoogleGenerativeAI(
+                    model=settings.llm_model,
+                    google_api_key=settings.gemini_api_key,
+                    temperature=settings.llm_temperature,
+                    max_output_tokens=settings.llm_max_tokens,
+                    max_retries=3
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize {settings.llm_model}, falling back to gemini-1.5-flash", error=str(e))
+                return ChatGoogleGenerativeAI(
+                    model="gemini-1.5-flash",
+                    google_api_key=settings.gemini_api_key,
+                    temperature=settings.llm_temperature,
+                    max_output_tokens=settings.llm_max_tokens,
+                    max_retries=3
+                )
         elif "gpt" in settings.llm_model.lower() and settings.openai_api_key:
             return ChatOpenAI(
                 model=settings.llm_model,
@@ -84,7 +93,7 @@ class LangChainLLMProvider(LLMProvider):
                 google_api_key=settings.gemini_api_key,
                 temperature=settings.llm_temperature,
                 max_output_tokens=settings.llm_max_tokens,
-                timeout=settings.llm_timeout
+                max_retries=3
             )
     
     async def generate(self, prompt: str, system_prompt: Optional[str] = None, **kwargs) -> str:
@@ -95,7 +104,13 @@ class LangChainLLMProvider(LLMProvider):
         messages.append(HumanMessage(content=prompt))
         
         try:
-            response = await self.model.ainvoke(messages, **kwargs)
+            # Filter out kwargs that might not be supported by the specific model
+            safe_kwargs = {}
+            for key, value in kwargs.items():
+                if key not in ['temperature', 'max_tokens', 'timeout']:  # Skip problematic params
+                    safe_kwargs[key] = value
+            
+            response = await self.model.ainvoke(messages, **safe_kwargs)
             return response.content
         except Exception as e:
             logger.error("LLM generation failed", error=str(e), model=settings.llm_model)
@@ -159,7 +174,13 @@ class LangChainLLMProvider(LLMProvider):
         try:
             # Avoid provider-specific structured output features that can fail (e.g., Gemini tools).
             # Ask for JSON in the prompt and parse the model output.
-            response = await self.model.ainvoke(messages, **kwargs)
+            # Filter out kwargs that might not be supported by the specific model
+            safe_kwargs = {}
+            for key, value in kwargs.items():
+                if key not in ['temperature', 'max_tokens', 'timeout']:  # Skip problematic params
+                    safe_kwargs[key] = value
+            
+            response = await self.model.ainvoke(messages, **safe_kwargs)
             try:
                 # First try the built-in parser for strictness
                 return self.json_parser.parse(response.content)
@@ -178,7 +199,13 @@ class LangChainLLMProvider(LLMProvider):
                     "Do not include any markdown or commentary. "
                     "Fix and output the JSON for this content:\n\n" + (enhanced_prompt)
                 )))
-                repaired = await self.model.ainvoke(repair_messages, **kwargs)
+                # Use same safe kwargs filter for repair
+                safe_kwargs = {}
+                for key, value in kwargs.items():
+                    if key not in ['temperature', 'max_tokens', 'timeout']:
+                        safe_kwargs[key] = value
+                
+                repaired = await self.model.ainvoke(repair_messages, **safe_kwargs)
                 return self._coerce_to_json(repaired.content)
             except Exception as e2:
                 logger.error("JSON repair failed", error=str(e2), model=settings.llm_model)
@@ -192,7 +219,13 @@ class LangChainLLMProvider(LLMProvider):
         messages.append(HumanMessage(content=prompt))
         
         try:
-            async for chunk in self.model.astream(messages, **kwargs):
+            # Filter out kwargs that might not be supported by the specific model
+            safe_kwargs = {}
+            for key, value in kwargs.items():
+                if key not in ['temperature', 'max_tokens', 'timeout']:  # Skip problematic params
+                    safe_kwargs[key] = value
+            
+            async for chunk in self.model.astream(messages, **safe_kwargs):
                 if chunk.content:
                     yield chunk.content
         except Exception as e:

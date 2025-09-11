@@ -287,14 +287,17 @@ async def run_ingest_job(req, job_id: str):
             "route": None
         }
     
-    # Send callback
-    try:
-        await send_callback(result)
-    except Exception as e:
-        logger.error("Callback failed",
-                    job_id=job_id,
-                    error=str(e))
-        # Don't fail the job if callback fails
+    # 📊 Log ingestion result beautifully instead of callback
+    logger.info("=" * 60)
+    logger.info(f"🎓 INGESTION COMPLETED: {req.title}")
+    logger.info("=" * 60)
+    logger.info(f"📚 Course ID: {req.course_id}")
+    logger.info(f"🌍 Language: {req.lang}")
+    logger.info(f"📄 Resources processed: {len(req.resources)}")
+    logger.info(f"⏱️ Processing time: {duration:.1f}s")
+    logger.info(f"➕ Total chunks created: {total_chunks}")
+    logger.info(f"🏗️ Modules generated: {len(route.get('modules', []))}")
+    logger.info("=" * 60)
     
     # Clear job context
     job_id_var.set(None)

@@ -6,15 +6,120 @@ from abc import ABC, abstractmethod
 import numpy as np
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.embeddings import Embeddings
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import structlog
 import asyncio
+import time
+from datetime import datetime, timedelta
 
 from app.config import settings
+import tiktoken
 
 logger = structlog.get_logger(__name__)
+
+# Global rate limiter for Gemini embeddings
+class GeminiRateLimiter:
+    def __init__(self):
+        self.requests_per_minute = settings.gemini_rpm_limit
+        self.requests_per_day = settings.gemini_rpd_limit
+        self.tokens_per_minute = 30000  # Gemini Free tier TPM limit
+        self.request_times = []        # Store request timestamps
+        self.token_usage = []          # Store (timestamp, token_count) pairs
+        self.daily_requests = 0
+        self.day_start = datetime.now().date()
+    
+    async def wait_if_needed(self, estimated_tokens: int = 0):
+        """Wait if rate limit would be exceeded"""
+        now = datetime.now()
+        
+        # Reset daily counter if new day
+        if now.date() > self.day_start:
+            self.daily_requests = 0
+            self.day_start = now.date()
+        
+        # Check daily limit
+        if self.daily_requests >= self.requests_per_day:
+            raise Exception(f"Daily rate limit exceeded ({self.requests_per_day} requests per day)")
+        
+        # Clean old requests (older than 1 minute)
+        minute_ago = now - timedelta(minutes=1)
+        self.request_times = [t for t in self.request_times if t > minute_ago]
+        self.token_usage = [(t, tokens) for t, tokens in self.token_usage if t > minute_ago]
+        
+        # Check RPM limit
+        if len(self.request_times) >= self.requests_per_minute:
+            sleep_time = 60 - (now - min(self.request_times)).total_seconds()
+            if sleep_time > 0:
+                logger.info(f"RPM limit: sleeping {sleep_time:.1f}s")
+                await asyncio.sleep(sleep_time)
+        
+        # Check TPM limit
+        current_tokens = sum(tokens for _, tokens in self.token_usage)
+        if current_tokens + estimated_tokens > self.tokens_per_minute:
+            # Calculate wait time based on oldest token usage
+            if self.token_usage:
+                oldest_time = min(t for t, _ in self.token_usage)
+                sleep_time = 60 - (now - oldest_time).total_seconds()
+                if sleep_time > 0:
+                    logger.info(f"TPM limit: sleeping {sleep_time:.1f}s (tokens: {current_tokens + estimated_tokens})")
+                    await asyncio.sleep(sleep_time)
+        
+        # Record this request
+        self.request_times.append(now)
+        self.token_usage.append((now, estimated_tokens))
+        self.daily_requests += 1
+
+gemini_rate_limiter = GeminiRateLimiter()
+
+
+def count_tokens(text: str) -> int:
+    """Count tokens in text using tiktoken"""
+    try:
+        # Use cl100k_base encoder (GPT-4, GPT-3.5-turbo)
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(text))
+    except Exception:
+        # Fallback: rough estimate (1 token ≈ 4 characters)
+        return len(text) // 4
+
+
+def create_token_aware_batches(texts: List[str], max_tokens_per_batch: int = 2000) -> List[List[str]]:
+    """Create batches of texts that stay under token limit"""
+    batches = []
+    current_batch = []
+    current_tokens = 0
+    
+    for text in texts:
+        text_tokens = count_tokens(text)
+        
+        # If single text exceeds limit, truncate it
+        if text_tokens > max_tokens_per_batch:
+            # Truncate text to fit in batch
+            encoding = tiktoken.get_encoding("cl100k_base")
+            tokens = encoding.encode(text)
+            truncated_tokens = tokens[:max_tokens_per_batch]
+            text = encoding.decode(truncated_tokens)
+            text_tokens = max_tokens_per_batch
+        
+        # If adding this text would exceed batch limit, start new batch
+        if current_batch and current_tokens + text_tokens > max_tokens_per_batch:
+            batches.append(current_batch)
+            current_batch = [text]
+            current_tokens = text_tokens
+        else:
+            current_batch.append(text)
+            current_tokens += text_tokens
+    
+    # Add final batch if not empty
+    if current_batch:
+        batches.append(current_batch)
+    
+    return batches
 
 
 class EmbeddingProvider(ABC):
@@ -53,9 +158,9 @@ class LangChainEmbeddingProvider(EmbeddingProvider):
                 dimensions=settings.embedding_dim
             )
         else:
-            # Default to local HuggingFace model
+            # Default to local HuggingFace model - high quality
             return HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_name="sentence-transformers/all-mpnet-base-v2",
                 model_kwargs={'device': 'cpu'},
                 encode_kwargs={'normalize_embeddings': True}
             )
@@ -68,57 +173,26 @@ class LangChainEmbeddingProvider(EmbeddingProvider):
             "text-embedding-3-small": 1536,
             "text-embedding-3-large": 3072,
             "all-MiniLM-L6-v2": 384,
-            "all-mpnet-base-v2": 768
+            "all-mpnet-base-v2": 768,
+            "sentence-transformers/all-mpnet-base-v2": 768
         }
         return model_dimensions.get(settings.embedding_model, settings.embedding_dim)
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
+    def _create_fallback_embeddings(self) -> HuggingFaceEmbeddings:
+        """Create fallback local embeddings"""
+        return HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+    
     async def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed multiple documents with retry logic"""
         if not texts:
             return []
         
         try:
-            # Clean and validate texts
-            cleaned_texts = []
-            for text in texts:
-                if text and text.strip():
-                    # Truncate if too long
-                    if len(text) > settings.max_embedding_length:
-                        text = text[:settings.max_embedding_length]
-                    cleaned_texts.append(text)
-            
-            if not cleaned_texts:
-                return []
-            
-            # Process in batches to avoid rate limits
-            embeddings = []
-            batch_size = settings.embedding_batch_size
-            
-            for i in range(0, len(cleaned_texts), batch_size):
-                batch = cleaned_texts[i:i + batch_size]
-                
-                # Use asyncio.to_thread for sync embeddings
-                batch_embeddings = await asyncio.to_thread(
-                    self.embeddings.embed_documents,
-                    batch
-                )
-                embeddings.extend(batch_embeddings)
-                
-                # Rate limiting between batches
-                if i + batch_size < len(cleaned_texts):
-                    await asyncio.sleep(0.1)
-            
-            logger.info("Documents embedded",
-                       count=len(texts),
-                       model=settings.embedding_model,
-                       dimension=self.dimension)
-            
-            return embeddings
-            
+            return await self._embed_with_fallback(texts, is_query=False)
         except Exception as e:
             logger.error("Embedding generation failed",
                         error=str(e),
@@ -132,39 +206,158 @@ class LangChainEmbeddingProvider(EmbeddingProvider):
             return []
         
         try:
-            # Truncate if too long
-            if len(text) > settings.max_embedding_length:
-                text = text[:settings.max_embedding_length]
-            
-            # For Google embeddings, we need to handle task_type
-            if isinstance(self.embeddings, GoogleGenerativeAIEmbeddings):
-                # Create a new instance with query task type
-                query_embeddings = GoogleGenerativeAIEmbeddings(
-                    model=settings.embedding_model,
-                    google_api_key=settings.gemini_api_key,
-                    task_type="retrieval_query"
-                )
-                embedding = await asyncio.to_thread(
-                    query_embeddings.embed_query,
-                    text
-                )
-            else:
-                embedding = await asyncio.to_thread(
-                    self.embeddings.embed_query,
-                    text
-                )
-            
-            logger.debug("Query embedded",
-                        model=settings.embedding_model,
-                        text_length=len(text))
-            
-            return embedding
-            
+            result = await self._embed_with_fallback([text], is_query=True)
+            return result[0] if result else []
         except Exception as e:
             logger.error("Query embedding failed",
                         error=str(e),
                         model=settings.embedding_model)
             raise
+    
+    async def _embed_with_fallback(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
+        """Embed with fallback to local model on rate limit"""
+        if not texts:
+            return []
+        
+        # Clean and validate texts
+        cleaned_texts = []
+        for text in texts:
+            if text and text.strip():
+                # Truncate if too long
+                if len(text) > settings.max_embedding_length:
+                    text = text[:settings.max_embedding_length]
+                cleaned_texts.append(text)
+        
+        if not cleaned_texts:
+            return []
+        
+        # Try primary model first
+        try:
+            return await self._embed_with_primary_model(cleaned_texts, is_query)
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check if it's a rate limit or quota error
+            if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                logger.warning("Primary embedding model rate limited, falling back to local model",
+                              model=settings.embedding_model,
+                              error=error_str)
+                return await self._embed_with_fallback_model(cleaned_texts)
+            else:
+                # For other errors, still try fallback but log as error
+                logger.error("Primary embedding model failed, trying fallback",
+                           model=settings.embedding_model,
+                           error=error_str)
+                try:
+                    return await self._embed_with_fallback_model(cleaned_texts)
+                except Exception as fallback_error:
+                    logger.error("Fallback embedding also failed",
+                               fallback_error=str(fallback_error))
+                    raise e  # Raise original error
+    
+    async def _embed_with_primary_model(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
+        """Embed using primary model with token-aware batching and rate limiting"""
+        embeddings = []
+        
+        # Handle Gemini with special token-aware batching
+        if isinstance(self.embeddings, GoogleGenerativeAIEmbeddings):
+            # Create token-aware batches for Gemini (2048 token limit)
+            token_batches = create_token_aware_batches(texts, max_tokens_per_batch=2000)
+            
+            logger.info("Token-aware batching for Gemini",
+                       total_texts=len(texts),
+                       total_batches=len(token_batches),
+                       model=settings.embedding_model)
+            
+            for batch_idx, batch in enumerate(token_batches):
+                # Calculate total tokens for this batch
+                batch_tokens = sum(count_tokens(text) for text in batch)
+                
+                # Apply rate limiting with token estimation
+                await gemini_rate_limiter.wait_if_needed(estimated_tokens=batch_tokens)
+                
+                if is_query and len(batch) == 1:
+                    # Handle single query embedding with proper task type
+                    query_embeddings = GoogleGenerativeAIEmbeddings(
+                        model=settings.embedding_model,
+                        google_api_key=settings.gemini_api_key,
+                        task_type="retrieval_query"
+                    )
+                    embedding = await asyncio.to_thread(
+                        query_embeddings.embed_query,
+                        batch[0]
+                    )
+                    embeddings.append(embedding)
+                else:
+                    # Handle batch document embedding
+                    batch_embeddings = await asyncio.to_thread(
+                        self.embeddings.embed_documents,
+                        batch
+                    )
+                    embeddings.extend(batch_embeddings)
+                
+                logger.info("Gemini batch processed",
+                           batch=f"{batch_idx+1}/{len(token_batches)}",
+                           batch_size=len(batch),
+                           batch_tokens=batch_tokens)
+                
+                # Rate limiting between batches - longer delay for Gemini
+                if batch_idx + 1 < len(token_batches):
+                    await asyncio.sleep(2.0)  # 2 second delay between token batches
+        
+        else:
+            # Standard batching for other providers
+            batch_size = min(settings.embedding_batch_size, 32)  # Larger batches for non-Gemini
+            
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                
+                if is_query and len(batch) == 1:
+                    embedding = await asyncio.to_thread(
+                        self.embeddings.embed_query,
+                        batch[0]
+                    )
+                    embeddings.append(embedding)
+                else:
+                    # Handle batch document embedding
+                    batch_embeddings = await asyncio.to_thread(
+                        self.embeddings.embed_documents,
+                        batch
+                    )
+                    embeddings.extend(batch_embeddings)
+                
+                # Rate limiting between batches
+                if i + batch_size < len(texts):
+                    await asyncio.sleep(0.5)  # Shorter delay for other providers
+        
+        logger.info("Documents embedded with primary model",
+                   count=len(texts),
+                   model=settings.embedding_model,
+                   dimension=self.dimension)
+        
+        return embeddings
+    
+    async def _embed_with_fallback_model(self, texts: List[str]) -> List[List[float]]:
+        """Embed using local fallback model"""
+        fallback_embeddings = self._create_fallback_embeddings()
+        
+        # Process in batches
+        embeddings = []
+        batch_size = 32  # Larger batches for local model
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            batch_embeddings = await asyncio.to_thread(
+                fallback_embeddings.embed_documents,
+                batch
+            )
+            embeddings.extend(batch_embeddings)
+        
+        logger.info("Documents embedded with fallback model",
+                   count=len(texts),
+                   model="sentence-transformers/all-mpnet-base-v2")
+        
+        return embeddings
 
 
 class EmbeddingService:

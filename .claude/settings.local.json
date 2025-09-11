@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(tree:*)",
+      "Bash(dir:*)",
+      "Bash(uvicorn:*)",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(curl:*)",
+      "Bash(.venv\\Scripts\\python:*)",
+      "Bash(timeout:*)",
+      "Bash(pkill:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

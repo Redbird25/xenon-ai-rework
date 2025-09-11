@@ -251,6 +251,25 @@ class IngestService:
                            error=str(e))
         
         return results
+    
+    async def ingest_text_content(
+        self,
+        course_id: str,
+        content: str,
+        title: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> int:
+        """
+        Ingest text content with optional title and metadata.
+        Used for generated lesson content ingestion.
+        """
+        return await self.ingest_text(
+            course_id=course_id,
+            raw_text=content,
+            source_ref=title,
+            language=metadata.get("language", "en") if metadata else "en",
+            metadata=metadata
+        )
 
 
 # Singleton instance

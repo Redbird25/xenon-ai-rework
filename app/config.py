@@ -52,17 +52,21 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None)
     
     # LLM Configuration
-    llm_model: str = Field(default="gemini-2.5-flash")
+    llm_model: str = Field(default="gemini-1.5-flash")
     llm_temperature: float = Field(default=0.0)
-    llm_max_tokens: int = Field(default=4096)
+    llm_max_tokens: int = Field(default=16384)
     llm_timeout: int = Field(default=60)
     llm_max_retries: int = Field(default=3)
     
     # Embedding Configuration
     embedding_model: str = Field(default="models/embedding-001")
     embedding_dim: int = Field(default=768)
-    embedding_batch_size: int = Field(default=32)
-    max_embedding_length: int = Field(default=8192)
+    embedding_batch_size: int = Field(default=10)  # Smaller batches for rate limiting
+    max_embedding_length: int = Field(default=8192)  # Reduced to avoid token limits
+    
+    # Rate limiting for Gemini Free Tier
+    gemini_rpm_limit: int = Field(default=80)      # Conservative RPM limit
+    gemini_rpd_limit: int = Field(default=900)     # Conservative RPD limit
     
     # Chunking Configuration
     chunking_strategy: ChunkingStrategy = Field(default=ChunkingStrategy.RECURSIVE)
@@ -81,8 +85,8 @@ class Settings(BaseSettings):
     )
     
     # Rate Limiting
-    rate_limit_rpm: int = Field(default=60)
-    rate_limit_tpm: int = Field(default=90000)
+    rate_limit_rpm: int = Field(default=200)
+    rate_limit_tpm: int = Field(default=500000)
     
     # Logging
     log_level: str = Field(default="INFO")

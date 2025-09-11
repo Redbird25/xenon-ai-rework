@@ -157,7 +157,7 @@ class IngestJob(Base):
     
     # Job details
     status = Column(String(50), default='pending')  # pending, processing, completed, failed
-    job_type = Column(String(50), nullable=True)  # document, batch, api
+    job_type = Column(String(50), nullable=True)  # document, batch, api, lesson_materialization
     
     # Progress tracking
     total_items = Column(Integer, nullable=True)
@@ -178,4 +178,41 @@ class IngestJob(Base):
         Index('idx_job_course', 'course_id'),
         Index('idx_job_status', 'status'),
         Index('idx_job_created', 'created_at'),
+    )
+
+
+class MaterializedLesson(Base):
+    """Store materialized lessons generated from course content"""
+    __tablename__ = "materialized_lessons"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    course_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Lesson details
+    lesson_name = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    content = Column(JSONB, nullable=False)  # Full lesson content with sections
+    
+    # Generation metadata
+    user_preferences = Column(JSONB, nullable=True)  # Original user prefs
+    source_chunks = Column(JSONB, nullable=True)  # IDs of chunks used for generation
+    generation_model = Column(String(100), nullable=True)
+    
+    # Processing status
+    processing_status = Column(String(50), default='completed')  # pending, processing, completed, failed
+    job_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    
+    # Content metadata
+    is_ingested = Column(Integer, default=0)  # 0 = not ingested, 1 = ingested
+    ingested_chunks_count = Column(Integer, default=0)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        Index('idx_lesson_course', 'course_id'),
+        Index('idx_lesson_job', 'job_id'),
+        Index('idx_lesson_status', 'processing_status'),
+        Index('idx_lesson_created', 'created_at'),
     )
