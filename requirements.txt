@@ -19,20 +19,22 @@ langchain-community
 langchain-google-genai
 langchain-openai
 langchain-anthropic
-llama-index
-llama-index-core
-llama-index-llms-openai
-llama-index-llms-anthropic
-llama-index-embeddings-openai
 openai
 anthropic
-cohere
 
-# Embeddings & Vector stores
-sentence-transformers
-faiss-cpu
-chromadb
-qdrant-client
+# Optional LLM frameworks (not currently used)
+# llama-index
+# llama-index-core
+# llama-index-llms-openai
+# llama-index-llms-anthropic
+# llama-index-embeddings-openai
+# cohere
+
+# Optional Embeddings & Vector stores (not currently used)
+# sentence-transformers
+# faiss-cpu
+# chromadb
+# qdrant-client
 
 # HTTP & async
 httpx
@@ -42,9 +44,11 @@ tenacity
 # Monitoring & Logging
 structlog
 prometheus-client
-opentelemetry-api
-opentelemetry-sdk
-opentelemetry-instrumentation-fastapi
+
+# Optional monitoring (not currently used)
+# opentelemetry-api
+# opentelemetry-sdk
+# opentelemetry-instrumentation-fastapi
 
 # Utils
 tiktoken
@@ -52,10 +56,12 @@ beautifulsoup4
 lxml
 pypdf
 python-multipart
-redis
-aiocache
-nltk
 markdown
+
+# Optional utils (not currently used)
+# redis
+# aiocache
+# nltk
 
 # Testing
 pytest
@@ -63,7 +69,9 @@ pytest-asyncio
 pytest-cov
 
 # Google specific
-google-genai
 google-generativeai
-protobuf
+
+# Optional Google packages (may be redundant)
+# google-genai
+# protobuf
 
