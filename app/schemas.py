@@ -39,7 +39,7 @@ class MaterializeLessonRequest(BaseModel):
     lesson_name: str
     lesson_description: str
     user_pref: UserPreferences
-    lessonMaterialId: Optional[str] = None
+    lesson_material_id: Optional[str] = None
 
 
 class MaterializeLessonResponse(BaseModel):

@@ -30,7 +30,7 @@ async def send_callback(result: Dict[str, Any]):
         response = await client.post(settings.materialization_callback_url, json=result)
         response.raise_for_status()
         logger.info("Callback sent successfully", 
-                   job_id=result.get("jobId"),
+                   job_id=result.get("job_id"),
                    status=result.get("status"))
 
 
@@ -158,7 +158,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         job_id=job_id,
         course_id=req.course_id,
         lesson_name=req.lesson_name,
-        lessonMaterialId=req.lessonMaterialId
+        lesson_material_id=req.lesson_material_id
     )
     
     # Create job record
@@ -193,13 +193,13 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         # Prepare callback data
         processing_time = time.time() - start_time
         result = {
-            "jobId": job_id,
-            "courseId": req.course_id,
-            "lesson_material_id": req.lessonMaterialId,
+            "job_id": job_id,
+            "course_id": req.course_id,
+            "lesson_material_id": req.lesson_material_id,
             "status": "completed",
-            "processingTimeSeconds": processing_time,
-            "lessonData": {
-                "lessonName": materialized_lesson.lesson_name,
+            "processing_time_seconds": processing_time,
+            "lesson_data": {
+                "lesson_name": materialized_lesson.lesson_name,
                 "description": materialized_lesson.description,
                 "sections": [
                     {
@@ -209,8 +209,8 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
                     }
                     for section in (materialized_lesson.content.get('sections', []) if hasattr(materialized_lesson, 'content') and materialized_lesson.content else [])
                 ],
-                "generatedFromChunks": [str(chunk_id) for chunk_id in materialized_lesson.generated_from_chunks],
-                "contentStrategy": getattr(materialized_lesson, '_content_strategy', 'unknown')
+                "generated_from_chunks": [str(chunk_id) for chunk_id in materialized_lesson.generated_from_chunks],
+                "content_strategy": getattr(materialized_lesson, '_content_strategy', 'unknown')
             }
         }
         
@@ -279,11 +279,11 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         
         # Send failure callback
         result = {
-            "jobId": job_id,
-            "courseId": req.course_id,
-            "lesson_material_id": req.lessonMaterialId,
+            "job_id": job_id,
+            "course_id": req.course_id,
+            "lesson_material_id": req.lesson_material_id,
             "status": "failed",
-            "processingTimeSeconds": time.time() - start_time,
+            "processing_time_seconds": time.time() - start_time,
             "error": error_msg
         }
         
