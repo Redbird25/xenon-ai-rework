@@ -18,7 +18,7 @@ async def materialize_lesson(
     background: BackgroundTasks
 ):
     """
-    Materialize a lesson from course content based on lesson name, description and user preferences.
+    Materialize a lesson from course content based on lesson name, lesson_description and user preferences.
     
     This endpoint:
     1. Searches for relevant chunks in the course content
@@ -34,7 +34,7 @@ async def materialize_lesson(
             job_id=job_id,
             course_id=req.course_id,
             lesson_name=req.lesson_name,
-            lesson_materialization_id=req.lesson_materialization_id,
+            lessonMaterialId=req.lessonMaterialId,
             user_learning_style=req.user_pref.learning_style
         )
         

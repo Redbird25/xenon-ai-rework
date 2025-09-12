@@ -144,7 +144,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         job_id=job_id,
         course_id=req.course_id,
         lesson_name=req.lesson_name,
-        lesson_materialization_id=req.lesson_materialization_id
+        lessonMaterialId=req.lessonMaterialId
     )
     
     # Create job record
@@ -166,7 +166,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         materialized_lesson = await lesson_generator.generate_lesson(
             course_id=req.course_id,
             lesson_name=req.lesson_name,
-            description=req.description,
+            description=req.lesson_description,
             user_preferences=req.user_pref,
             job_id=job_id
         )
@@ -182,7 +182,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             "job_id": job_id,
             "course_id": req.course_id,
             "status": "completed",
-            "lesson_materialization_id": req.lesson_materialization_id,
+            "lessonMaterialId": req.lessonMaterialId,
             "lesson_data": {
                 "lesson_name": materialized_lesson.lesson_name,
                 "description": materialized_lesson.description,
@@ -256,7 +256,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             "job_id": job_id,
             "course_id": req.course_id,
             "status": "failed",
-            "lesson_materialization_id": req.lesson_materialization_id,
+            "lessonMaterialId": req.lessonMaterialId,
             "error": error_msg,
             "processing_time_seconds": time.time() - start_time
         }
