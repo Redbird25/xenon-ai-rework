@@ -34,6 +34,7 @@ async def materialize_lesson(
             job_id=job_id,
             course_id=req.course_id,
             lesson_name=req.lesson_name,
+            lesson_materialization_id=req.lesson_materialization_id,
             user_learning_style=req.user_pref.learning_style
         )
         
