@@ -115,7 +115,7 @@ class LessonGenerator:
                 # Add the content strategy as attribute for logging
                 if saved_lesson:
                     saved_lesson._content_strategy = context.content_strategy
-                    saved_lesson.generated_from_chunks = context.source_chunks
+                    saved_lesson.generated_from_chunks = [chunk["id"] if isinstance(chunk, dict) else chunk for chunk in context.source_chunks]
                 return saved_lesson or lesson_content
             
         except Exception as e:
