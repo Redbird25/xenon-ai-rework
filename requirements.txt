@@ -30,8 +30,9 @@ anthropic
 # llama-index-embeddings-openai
 # cohere
 
-# Optional Embeddings & Vector stores (not currently used)
-# sentence-transformers
+# Embeddings & Vector stores
+sentence-transformers
+langchain-huggingface
 # faiss-cpu
 # chromadb
 # qdrant-client
