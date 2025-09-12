@@ -198,7 +198,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             "lesson_material_id": req.lesson_material_id,
             "status": "completed",
             "processing_time_seconds": processing_time,
-            "lesson_data": {
+            "lessonData": {
                 "lesson_name": materialized_lesson.lesson_name,
                 "description": materialized_lesson.description,
                 "sections": [
