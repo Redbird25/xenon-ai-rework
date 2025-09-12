@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         description="URL for job completion callbacks"
     )
     materialization_callback_url: str = Field(
-        default="http://course-service:8082/materialization/callback",
+        default="http://materialization-service:8084/materialization/callback",
         description="URL for lesson materialization callbacks"
     )
     
