@@ -195,7 +195,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         result = {
             "jobId": job_id,
             "courseId": req.course_id,
-            "lessonMaterialId": req.lessonMaterialId,
+            "lesson_material_id": req.lessonMaterialId,
             "status": "completed",
             "processingTimeSeconds": processing_time,
             "lessonData": {
@@ -281,7 +281,7 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         result = {
             "jobId": job_id,
             "courseId": req.course_id,
-            "lessonMaterialId": req.lessonMaterialId,
+            "lesson_material_id": req.lessonMaterialId,
             "status": "failed",
             "processingTimeSeconds": time.time() - start_time,
             "error": error_msg
