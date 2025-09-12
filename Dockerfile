@@ -21,6 +21,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -U pip && \
     pip install -r requirements.txt
 
+# Предзагружаем sentence-transformers модель
+ENV HUGGINGFACE_HUB_CACHE=/app/hf_cache
+ENV TRANSFORMERS_CACHE=/app/hf_cache
+ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
+RUN mkdir -p /app/hf_cache && \
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-mpnet-base-v2', cache_folder='/app/hf_cache')"
+
 ########## Runtime stage ##########
 FROM python:3.11-slim AS runtime
 
@@ -40,6 +47,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Копируем установленный питон-стек из билдера
 COPY --from=builder /usr/local /usr/local
 
+# Копируем предзагруженную модель из билдера
+COPY --from=builder /app/hf_cache /app/hf_cache
+
 # Копируем исходники
 COPY . .
 
@@ -47,6 +57,12 @@ COPY . .
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser && \
     chown -R appuser:appgroup /app
 USER appuser
+
+# HuggingFace cache configuration
+ENV HUGGINGFACE_HUB_CACHE=/app/hf_cache
+ENV TRANSFORMERS_CACHE=/app/hf_cache
+ENV SENTENCE_TRANSFORMERS_HOME=/app/hf_cache
+ENV HF_HUB_DISABLE_SYMLINKS_WARNING=1
 
 # Значения по умолчанию (можно переопределить в docker-compose/k8s)
 ENV CORE_CALLBACK_URL=http://course-service:8082/api/course/ingest/callback

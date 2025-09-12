@@ -4,8 +4,6 @@ Modern embeddings module using LangChain with support for multiple providers
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 import numpy as np
-import os
-from pathlib import Path
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_openai import OpenAIEmbeddings
 try:
@@ -161,20 +159,10 @@ class LangChainEmbeddingProvider(EmbeddingProvider):
             )
         else:
             # Default to local HuggingFace model - high quality
-            # Set up cache directory to avoid permission issues
-            cache_dir = Path("./hf_cache")
-            cache_dir.mkdir(exist_ok=True)
-            
-            # Set environment variables for HuggingFace cache
-            os.environ['HUGGINGFACE_HUB_CACHE'] = str(cache_dir)
-            os.environ['TRANSFORMERS_CACHE'] = str(cache_dir)
-            os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(cache_dir)
-            
             return HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-mpnet-base-v2",
                 model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True},
-                cache_folder=str(cache_dir)
+                encode_kwargs={'normalize_embeddings': True}
             )
     
     def _get_dimension(self) -> int:
