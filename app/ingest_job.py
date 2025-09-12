@@ -287,7 +287,7 @@ async def run_ingest_job(req, job_id: str):
             "route": None
         }
     
-    # 📊 Log ingestion result beautifully instead of callback
+    # 📊 Log ingestion result beautifully
     logger.info("=" * 60)
     logger.info(f"🎓 INGESTION COMPLETED: {req.title}")
     logger.info("=" * 60)
@@ -298,6 +298,13 @@ async def run_ingest_job(req, job_id: str):
     logger.info(f"➕ Total chunks created: {total_chunks}")
     logger.info(f"🏗️ Modules generated: {len(route.get('modules', []))}")
     logger.info("=" * 60)
+    
+    # Send callback to core service
+    try:
+        await send_callback(result)
+        logger.info("Callback sent successfully", job_id=job_id, status=result["status"])
+    except Exception as e:
+        logger.error("Failed to send callback", job_id=job_id, error=str(e))
     
     # Clear job context
     job_id_var.set(None)

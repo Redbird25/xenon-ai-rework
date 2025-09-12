@@ -19,6 +19,20 @@ from sqlalchemy import select
 
 logger = get_logger(__name__)
 
+# Retry decorator for callback
+callback_retry = RetryWithBackoff(max_attempts=3, initial_delay=1.0)
+
+
+@callback_retry
+async def send_callback(result: Dict[str, Any]):
+    """Send callback to core service with retry"""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(settings.core_callback_url, json=result)
+        response.raise_for_status()
+        logger.info("Callback sent successfully", 
+                   job_id=result.get("job_id"),
+                   status=result.get("status"))
+
 
 async def log_beautiful_lesson(materialized_lesson, req: MaterializeLessonRequest, processing_time: float, chunks_created: int):
     """Write the materialized lesson content beautifully to a text file"""
@@ -219,8 +233,15 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             }
         )
         
-        # 📖 Beautiful lesson content display instead of callback
+        # 📖 Beautiful lesson content display
         await log_beautiful_lesson(materialized_lesson, req, processing_time, chunks_created)
+        
+        # Send success callback
+        try:
+            await send_callback(result)
+            logger.info("Callback sent successfully", job_id=job_id, status="completed")
+        except Exception as e:
+            logger.error("Failed to send callback", job_id=job_id, error=str(e))
         
         logger.info(
             "Lesson materialization completed successfully",
@@ -261,7 +282,14 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             "processing_time_seconds": time.time() - start_time
         }
         
-        # 💥 Log failure beautifully instead of callback
+        # Send failure callback
+        try:
+            await send_callback(result)
+            logger.info("Failure callback sent successfully", job_id=job_id, status="failed")
+        except Exception as cb_e:
+            logger.error("Failed to send failure callback", job_id=job_id, error=str(cb_e))
+        
+        # 💥 Log failure beautifully
         logger.error(
             "❌ LESSON MATERIALIZATION FAILED",
             job_id=job_id,
