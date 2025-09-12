@@ -27,10 +27,10 @@ callback_retry = RetryWithBackoff(max_attempts=3, initial_delay=1.0)
 async def send_callback(result: Dict[str, Any]):
     """Send callback to core service with retry"""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(settings.core_callback_url, json=result)
+        response = await client.post(settings.materialization_callback_url, json=result)
         response.raise_for_status()
         logger.info("Callback sent successfully", 
-                   job_id=result.get("job_id"),
+                   job_id=result.get("jobId"),
                    status=result.get("status"))
 
 
@@ -193,20 +193,25 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         # Prepare callback data
         processing_time = time.time() - start_time
         result = {
-            "job_id": job_id,
-            "course_id": req.course_id,
-            "status": "completed",
+            "jobId": job_id,
+            "courseId": req.course_id,
             "lessonMaterialId": req.lessonMaterialId,
-            "lesson_data": {
-                "lesson_name": materialized_lesson.lesson_name,
+            "status": "completed",
+            "processingTimeSeconds": processing_time,
+            "lessonData": {
+                "lessonName": materialized_lesson.lesson_name,
                 "description": materialized_lesson.description,
-                "sections": materialized_lesson.content.get('sections', []) if hasattr(materialized_lesson, 'content') and materialized_lesson.content else [],
-                "generated_from_chunks": materialized_lesson.generated_from_chunks,
-                "content_strategy": getattr(materialized_lesson, '_content_strategy', 'unknown')
-            },
-            "processing_time_seconds": processing_time,
-            "chunks_created": chunks_created,
-            "content_ingested": should_ingest
+                "sections": [
+                    {
+                        "title": section.get('title', ''),
+                        "content": section.get('content', ''),
+                        "examples": section.get('examples', [])
+                    }
+                    for section in (materialized_lesson.content.get('sections', []) if hasattr(materialized_lesson, 'content') and materialized_lesson.content else [])
+                ],
+                "generatedFromChunks": [str(chunk_id) for chunk_id in materialized_lesson.generated_from_chunks],
+                "contentStrategy": getattr(materialized_lesson, '_content_strategy', 'unknown')
+            }
         }
         
         # 🎨 Beautiful callback result logging
@@ -274,12 +279,12 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         
         # Send failure callback
         result = {
-            "job_id": job_id,
-            "course_id": req.course_id,
-            "status": "failed",
+            "jobId": job_id,
+            "courseId": req.course_id,
             "lessonMaterialId": req.lessonMaterialId,
-            "error": error_msg,
-            "processing_time_seconds": time.time() - start_time
+            "status": "failed",
+            "processingTimeSeconds": time.time() - start_time,
+            "error": error_msg
         }
         
         # Send failure callback

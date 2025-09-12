@@ -83,6 +83,10 @@ class Settings(BaseSettings):
         default="http://course-service:8082/api/course/ingest/callback",
         description="URL for job completion callbacks"
     )
+    materialization_callback_url: str = Field(
+        default="http://course-service:8082/materialization/callback",
+        description="URL for lesson materialization callbacks"
+    )
     
     # Rate Limiting
     rate_limit_rpm: int = Field(default=200)
