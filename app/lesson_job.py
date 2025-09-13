@@ -4,6 +4,7 @@ Lesson materialization job processing
 import httpx
 import uuid
 import time
+import asyncio
 from datetime import datetime
 from typing import Dict, Any
 
@@ -25,13 +26,24 @@ callback_retry = RetryWithBackoff(max_attempts=3, initial_delay=1.0)
 
 @callback_retry
 async def send_callback(result: Dict[str, Any]):
-    """Send callback to core service with retry"""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(settings.materialization_callback_url, json=result)
-        response.raise_for_status()
-        logger.info("Callback sent successfully", 
-                   job_id=result.get("job_id"),
-                   status=result.get("status"))
+    """Send callback to core service with retry and error handling"""
+    job_id = result.get("job_id", "unknown")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(settings.materialization_callback_url, json=result)
+            response.raise_for_status()
+            logger.info("Callback sent successfully",
+                       job_id=job_id,
+                       status=result.get("status"))
+    except httpx.TimeoutException:
+        logger.error(f"Callback timeout for job {job_id}")
+        raise
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Callback HTTP error for job {job_id}: {e.response.status_code}")
+        raise
+    except Exception as e:
+        logger.error(f"Callback failed for job {job_id}: {str(e)}")
+        raise
 
 
 async def log_beautiful_lesson(materialized_lesson, req: MaterializeLessonRequest, processing_time: float, chunks_created: int):
@@ -148,47 +160,65 @@ async def log_beautiful_lesson(materialized_lesson, req: MaterializeLessonReques
 
 async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: str):
     """
-    Run lesson materialization job with progress tracking
+    Run lesson materialization job with progress tracking and robust error handling
     """
     start_time = time.time()
-    job_id_var.set(job_id)
-    
-    logger.info(
-        "Starting lesson materialization job",
-        job_id=job_id,
-        course_id=req.course_id,
-        lesson_name=req.lesson_name,
-        lesson_material_id=req.lesson_material_id
-    )
-    
-    # Create job record
-    async with async_session() as session:
-        job = IngestJob(
-            id=job_id,
-            course_id=req.course_id,
-            status="processing",
-            job_type="lesson_materialization",
-            total_items=1,
-            started_at=datetime.utcnow()
-        )
-        session.add(job)
-        await session.commit()
-    
+
+    # Global error handler to ensure callback is always sent
     try:
-        # Generate lesson
-        lesson_generator = get_lesson_generator()
-        materialized_lesson = await lesson_generator.generate_lesson(
-            course_id=req.course_id,
-            lesson_name=req.lesson_name,
-            description=req.lesson_description,
-            user_preferences=req.user_pref,
-            job_id=job_id
-        )
-        
+        job_id_var.set(job_id)
+
+        # Initialize with safe logging
+        try:
+            logger.info(
+                "Starting lesson materialization job",
+                job_id=job_id,
+                course_id=req.course_id,
+                lesson_name=req.lesson_name,
+                lesson_material_id=req.lesson_material_id
+            )
+        except Exception as log_error:
+            # Fallback if logging fails
+            print(f"Logger failed in job {job_id}: {str(log_error)}")
+            print(f"Starting lesson materialization job for {req.lesson_name}")
+
+        # Create job record
+        async with async_session() as session:
+            job = IngestJob(
+                id=job_id,
+                course_id=req.course_id,
+                status="processing",
+                job_type="lesson_materialization",
+                total_items=1,
+                started_at=datetime.utcnow()
+            )
+            session.add(job)
+            await session.commit()
+
+        # Main job processing
+        # Generate lesson with additional error handling
+        try:
+            lesson_generator = get_lesson_generator()
+            materialized_lesson = await lesson_generator.generate_lesson(
+                course_id=req.course_id,
+                lesson_name=req.lesson_name,
+                description=req.lesson_description,
+                user_preferences=req.user_pref,
+                job_id=job_id
+            )
+        except Exception as gen_error:
+            logger.error(f"Lesson generation failed: {str(gen_error)}")
+            raise gen_error
+
         # Ingest academic content only if strategy requires it
-        should_ingest, chunks_created = await ingest_lesson_content_conditionally(
-            req.course_id, materialized_lesson, job_id
-        )
+        try:
+            should_ingest, chunks_created = await ingest_lesson_content_conditionally(
+                req.course_id, materialized_lesson, job_id
+            )
+        except Exception as ingest_error:
+            logger.error(f"Content ingestion failed: {str(ingest_error)}")
+            # Continue with lesson completion even if ingestion fails
+            should_ingest, chunks_created = False, 0
         
         # Prepare callback data
         processing_time = time.time() - start_time
@@ -241,12 +271,34 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
         # 📖 Beautiful lesson content display
         await log_beautiful_lesson(materialized_lesson, req, processing_time, chunks_created)
         
-        # Send success callback
-        try:
-            await send_callback(result)
-            logger.info("Callback sent successfully", job_id=job_id, status="completed")
-        except Exception as e:
-            logger.error("Failed to send callback", job_id=job_id, error=str(e))
+        # Update job status to completed first
+        async with async_session() as session:
+            await session.execute(
+                IngestJob.__table__.update()
+                .where(IngestJob.id == job_id)
+                .values(
+                    status="completed",
+                    processed_items=1,
+                    completed_at=datetime.utcnow()
+                )
+            )
+            await session.commit()
+
+        # Send success callback with multiple retry attempts
+        callback_sent = False
+        for attempt in range(3):
+            try:
+                await send_callback(result)
+                logger.info("Callback sent successfully", job_id=job_id, status="completed", attempt=attempt+1)
+                callback_sent = True
+                break
+            except Exception as e:
+                logger.warning(f"Callback attempt {attempt+1} failed: {str(e)}")
+                if attempt < 2:  # Don't wait after last attempt
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+        if not callback_sent:
+            logger.error("All callback attempts failed", job_id=job_id)
         
         logger.info(
             "Lesson materialization completed successfully",
@@ -302,6 +354,32 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
             error=error_msg,
             processing_time=f"{time.time() - start_time:.1f}s"
         )
+
+    except Exception as critical_error:
+        # Critical error handler - this catches everything including database errors
+        error_msg = f"Critical job failure: {str(critical_error)}"
+        print(f"CRITICAL ERROR in job {job_id}: {error_msg}")
+
+        # Try to send failure callback even if database operations fail
+        try:
+            result = {
+                "job_id": job_id,
+                "course_id": req.course_id,
+                "lesson_material_id": req.lesson_material_id,
+                "status": "failed",
+                "processing_time_seconds": time.time() - start_time,
+                "error": error_msg
+            }
+
+            # Force callback send with basic HTTP call if everything else fails
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(settings.materialization_callback_url, json=result)
+                print(f"Emergency callback sent for job {job_id}: {response.status_code}")
+        except Exception as callback_error:
+            print(f"Emergency callback also failed for job {job_id}: {str(callback_error)}")
+
+        # Log to console as fallback
+        print(f"Job {job_id} failed completely: {error_msg}")
 
 
 async def ingest_lesson_content_conditionally(course_id: str, lesson: Any, job_id: str) -> tuple[bool, int]:
