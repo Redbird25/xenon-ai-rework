@@ -21,10 +21,25 @@ class UserPreferences(BaseModel):
     learning_style: Literal["TEXT", "VIDEO", "MIXED"]
 
 
+class CodeExample(BaseModel):
+    language: str
+    code: str
+    explanation: str
+    context: str
+
+
+class PracticalExercise(BaseModel):
+    task: str
+    solution_hint: str
+    difficulty: str
+
+
 class LessonSection(BaseModel):
     title: str
     content: str
     examples: List[str]
+    code_examples: Optional[List[CodeExample]] = []
+    practical_exercises: Optional[List[PracticalExercise]] = []
 
 
 class MaterializedLesson(BaseModel):

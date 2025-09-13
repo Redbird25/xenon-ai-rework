@@ -14,7 +14,7 @@ from app.core.vector_search import get_search_engine
 from app.core.llm import get_llm_provider
 from app.db import async_session
 from app.models import MaterializedLesson, IngestJob, LessonChunk
-from app.schemas import UserPreferences, MaterializedLesson as MaterializedLessonSchema, LessonSection
+from app.schemas import UserPreferences, MaterializedLesson as MaterializedLessonSchema, LessonSection, CodeExample, PracticalExercise
 from sqlalchemy import select, update
 
 logger = structlog.get_logger(__name__)
@@ -193,37 +193,112 @@ class LessonGenerator:
         
         return chunks, content_strategy
     
+    def _is_technical_topic(self, lesson_name: str, description: str) -> bool:
+        """Determine if lesson is about programming/technical topics"""
+        technical_keywords = [
+            # Programming languages
+            'javascript', 'python', 'java', 'react', 'node.js', 'typescript', 'html', 'css',
+            'php', 'ruby', 'go', 'rust', 'swift', 'kotlin', 'c++', 'c#', 'sql',
+            # Frameworks & Libraries
+            'react', 'vue', 'angular', 'django', 'flask', 'express', 'spring', 'laravel',
+            'bootstrap', 'tailwind', 'jquery', 'redux', 'nextjs', 'nuxt',
+            # Technologies & Concepts
+            'api', 'rest', 'graphql', 'database', 'mysql', 'postgresql', 'mongodb',
+            'docker', 'kubernetes', 'aws', 'cloud', 'microservices', 'devops',
+            'algorithm', 'data structure', 'oop', 'functional programming',
+            'machine learning', 'ai', 'neural network', 'deep learning',
+            'frontend', 'backend', 'fullstack', 'web development', 'mobile development',
+            'git', 'github', 'version control', 'testing', 'unit test', 'integration test',
+            'hooks', 'component', 'state management', 'props', 'jsx', 'dom',
+            'async', 'await', 'promise', 'callback', 'event', 'debugging'
+        ]
+
+        text_to_check = f"{lesson_name} {description}".lower()
+        return any(keyword in text_to_check for keyword in technical_keywords)
+
     async def _generate_lesson_content(
-        self, 
+        self,
         context: LessonGenerationContext
     ) -> MaterializedLessonSchema:
-        """Generate lesson content using LLM"""
-        
+        """Generate lesson content using LLM with enhanced support for technical topics"""
+
+        # Determine if this is a technical lesson
+        is_technical = self._is_technical_topic(context.lesson_name, context.description)
+
         # Create comprehensive prompt for lesson generation
-        prompt = self._create_lesson_prompt(context)
-        
-        # Define JSON schema for structured output
-        lesson_schema = {
-            "type": "object",
-            "properties": {
-                "sections": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "title": {"type": "string"},
-                            "content": {"type": "string"},
-                            "examples": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            }
-                        },
-                        "required": ["title", "content", "examples"]
+        prompt = self._create_lesson_prompt(context, is_technical)
+
+        # Define enhanced JSON schema for technical lessons
+        if is_technical:
+            lesson_schema = {
+                "type": "object",
+                "properties": {
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "content": {"type": "string"},
+                                "code_examples": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "language": {"type": "string"},
+                                            "code": {"type": "string"},
+                                            "explanation": {"type": "string"},
+                                            "context": {"type": "string"}
+                                        },
+                                        "required": ["language", "code", "explanation", "context"]
+                                    }
+                                },
+                                "practical_exercises": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "task": {"type": "string"},
+                                            "solution_hint": {"type": "string"},
+                                            "difficulty": {"type": "string"}
+                                        },
+                                        "required": ["task", "solution_hint", "difficulty"]
+                                    }
+                                },
+                                "examples": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            },
+                            "required": ["title", "content", "code_examples", "practical_exercises", "examples"]
+                        }
                     }
-                }
-            },
-            "required": ["sections"]
-        }
+                },
+                "required": ["sections"]
+            }
+        else:
+            # Original schema for non-technical lessons
+            lesson_schema = {
+                "type": "object",
+                "properties": {
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "content": {"type": "string"},
+                                "examples": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                }
+                            },
+                            "required": ["title", "content", "examples"]
+                        }
+                    }
+                },
+                "required": ["sections"]
+            }
         
         # Generate structured content with higher token limit for rich lessons
         response = await self.llm_provider.generate_json(
@@ -233,15 +308,78 @@ class LessonGenerator:
             max_tokens=32000  # Increased for comprehensive lessons
         )
         
-        # Parse and validate response
+        # Parse and validate response with enhanced technical content support
         sections = []
-        for section_data in response.get("sections", []):
-            section = LessonSection(
-                title=section_data["title"],
-                content=section_data["content"],
-                examples=section_data["examples"]
-            )
-            sections.append(section)
+        for i, section_data in enumerate(response.get("sections", []), 1):
+            section_title = section_data.get("title", f"Section {i}")
+            section_content = section_data.get("content", "")
+            section_examples = section_data.get("examples", [])
+
+            if is_technical:
+                # For technical lessons, validate and include code examples
+                code_examples = section_data.get("code_examples", [])
+                practical_exercises = section_data.get("practical_exercises", [])
+
+                # Validate technical content - ensure we have code examples
+                if not code_examples:
+                    logger.warning(f"Technical section '{section_title}' missing code examples, generating placeholder")
+                    # Generate a basic code example as fallback
+                    code_examples = [{
+                        "language": "javascript",
+                        "code": f"// Example code for {section_title}\nconsole.log('This section needs proper code examples');",
+                        "explanation": "This is a placeholder code example. The lesson generator should provide actual code examples for technical topics.",
+                        "context": f"Technical example for {section_title}"
+                    }]
+
+                if not practical_exercises:
+                    logger.warning(f"Technical section '{section_title}' missing exercises, generating placeholder")
+                    practical_exercises = [{
+                        "task": f"Practice implementing concepts from {section_title}",
+                        "solution_hint": "Follow the examples provided in this section",
+                        "difficulty": "intermediate"
+                    }]
+
+                # Convert to Pydantic models
+                pydantic_code_examples = [
+                    CodeExample(
+                        language=ce.get("language", "javascript"),
+                        code=ce.get("code", ""),
+                        explanation=ce.get("explanation", ""),
+                        context=ce.get("context", "")
+                    ) for ce in code_examples
+                ]
+
+                pydantic_exercises = [
+                    PracticalExercise(
+                        task=ex.get("task", ""),
+                        solution_hint=ex.get("solution_hint", ""),
+                        difficulty=ex.get("difficulty", "intermediate")
+                    ) for ex in practical_exercises
+                ]
+
+                section = LessonSection(
+                    title=section_title,
+                    content=section_content,
+                    examples=section_examples,
+                    code_examples=pydantic_code_examples,
+                    practical_exercises=pydantic_exercises
+                )
+                sections.append(section)
+
+                # Log technical content validation
+                logger.info(
+                    f"Technical section validated: {section_title}",
+                    code_examples_count=len(code_examples),
+                    exercises_count=len(practical_exercises)
+                )
+            else:
+                # For non-technical lessons, use original format
+                section = LessonSection(
+                    title=section_title,
+                    content=section_content,
+                    examples=section_examples
+                )
+                sections.append(section)
         
         # Create materialized lesson
         lesson = MaterializedLessonSchema(
@@ -256,7 +394,7 @@ class LessonGenerator:
         
         return lesson
     
-    def _create_lesson_prompt(self, context: LessonGenerationContext) -> str:
+    def _create_lesson_prompt(self, context: LessonGenerationContext, is_technical: bool = False) -> str:
         """Create detailed prompt for lesson generation based on content strategy"""
         
         # Format user preferences
@@ -349,6 +487,7 @@ CRITICAL PERSONALIZATION REQUIREMENTS:
 🎯 STUDENT INTERESTS: {interests_str}
 🎯 STUDENT HOBBIES: {hobbies_str}
 🎯 LEARNING STYLE: {learning_style}
+🎯 LESSON TYPE: {"TECHNICAL/PROGRAMMING" if is_technical else "GENERAL EDUCATION"}
 
 MANDATORY PERSONALIZATION RULES:
 1. EVERY example must relate to student's interests ({interests_str}) AND/OR hobbies ({hobbies_str})
@@ -357,14 +496,74 @@ MANDATORY PERSONALIZATION RULES:
 4. Reference real tools/frameworks they would use (React, Node.js, Python, ML libraries, etc.)
 5. Combine interests + hobbies creatively (e.g., AI for gaming, Backend for music apps, etc.)
 
+{"🚨 CRITICAL FOR TECHNICAL LESSONS: This is a programming/technical topic - you MUST include practical code examples!" if is_technical else ""}
+
+{f'''🔥 TECHNICAL LESSON JSON STRUCTURE EXAMPLE:
+{{
+  "sections": [
+    {{
+      "title": "React useState Hook Basics",
+      "content": "The useState hook allows you to add state to functional components...",
+      "code_examples": [
+        {{
+          "language": "javascript",
+          "code": "import React, {{ useState }} from 'react';\\n\\nfunction GameScore() {{\\n  const [score, setScore] = useState(0);\\n\\n  return (\\n    <div>\\n      <p>Score: {{score}}</p>\\n      <button onClick={{() => setScore(score + 1)}}>\\n        Add Point\\n      </button>\\n    </div>\\n  );\\n}}",
+          "explanation": "This example shows a gaming score tracker using useState. The score starts at 0 and increases when the button is clicked.",
+          "context": "Gaming score tracker for {interests_str[0] if interests_str else 'your hobby'}"
+        }},
+        {{
+          "language": "javascript",
+          "code": "const [photoFilter, setPhotoFilter] = useState('none');\\n\\nconst applyFilter = (filterType) => {{\\n  setPhotoFilter(filterType);\\n  // Apply filter logic here\\n}};",
+          "explanation": "Managing photo filter state for an image editing application.",
+          "context": "Photo editing app for photography enthusiasts"
+        }}
+      ],
+      "practical_exercises": [
+        {{
+          "task": "Create a React component that tracks music playlist state with useState. Include functions to add/remove songs.",
+          "solution_hint": "Use an array in useState and spread operator to update the playlist",
+          "difficulty": "beginner"
+        }},
+        {{
+          "task": "Build a game state manager that tracks player health, score, and level using multiple useState hooks.",
+          "solution_hint": "Consider using separate state variables for different game aspects",
+          "difficulty": "intermediate"
+        }}
+      ],
+      "examples": [
+        "Real-time gaming scoreboard",
+        "Interactive photo gallery with filters",
+        "Music player with playlist management"
+      ]
+    }}
+  ]
+}}
+
+⚠️ YOU MUST FOLLOW THIS EXACT STRUCTURE FOR TECHNICAL LESSONS!''' if is_technical else ""}
+
 INSTRUCTIONS:
 1. Create a comprehensive, well-structured lesson with 5-7 substantial sections
 2. Each section MUST have:
    - Clear, descriptive title
-   - Rich, detailed content explanation (aim for 300-500 words per section)  
+   - Rich, detailed content explanation (aim for 300-500 words per section)
    - Step-by-step breakdowns where appropriate
    - 3-4 practical examples that DIRECTLY connect to their interests ({interests_str}) and hobbies ({hobbies_str})
    - Real-world applications from software development industry
+
+{f'''🔥 ADDITIONAL REQUIREMENTS FOR TECHNICAL LESSONS:
+   - 2-4 COMPLETE, WORKING code examples per section with proper syntax highlighting
+   - Each code example must have: language, code, explanation, and context (relating to student interests)
+   - Code examples should be PRACTICAL and IMMEDIATELY USABLE
+   - Include 2-3 hands-on exercises per section with solution hints
+   - Exercise difficulty progression: "beginner", "intermediate", "advanced"
+   - All code must be modern, using current best practices and latest syntax
+   - Examples should demonstrate real-world industry patterns
+   - Include error handling, edge cases, and debugging tips
+   - Connect each code example to student's interests: {interests_str} and hobbies: {hobbies_str}
+   - For React topics: functional components, hooks, modern JSX patterns
+   - For JavaScript: ES6+, async/await, modern APIs
+   - For any framework: current version syntax and best practices''' if is_technical else ""}
+
 3. Adapt content presentation based on learning style:
    - TEXT: Focus on detailed explanations, code examples, and structured information
    - VIDEO: Include descriptions of visual concepts, diagrams, and step-by-step processes
@@ -381,7 +580,27 @@ INSTRUCTIONS:
 7. Add variety - each section should feel unique and valuable
 8. Ensure progression from basic concepts to more advanced applications
 
-Generate a rich, personalized lesson in the specified JSON format with sections array.
+{f'''🎯 CODE QUALITY REQUIREMENTS (TECHNICAL LESSONS):
+- All code must be production-ready and follow industry standards
+- Include comments explaining complex logic
+- Use meaningful variable names and clear function signatures
+- Provide context about when and why to use each pattern
+- Show both basic and advanced usage patterns
+- Include performance considerations where relevant
+- Demonstrate testing approaches for the code examples
+- Connect to popular tools and libraries in the ecosystem
+
+🚨 CRITICAL TECHNICAL VALIDATION CHECKLIST:
+✅ Each section MUST have at least 2 code_examples with complete working code
+✅ Each code example MUST have language, code, explanation, and context fields
+✅ Each section MUST have at least 2 practical_exercises with task, solution_hint, and difficulty
+✅ Code examples MUST be directly related to student interests: {interests_str}
+✅ All code MUST use modern syntax (ES6+, React Hooks, current best practices)
+✅ Examples MUST combine technical concepts with student hobbies: {hobbies_str}
+
+FAILURE TO INCLUDE PROPER CODE EXAMPLES WILL RESULT IN LESSON REJECTION!''' if is_technical else ""}
+
+{f'RESPONSE FORMAT: Return valid JSON matching the technical lesson schema shown above. Each section MUST contain both code_examples and practical_exercises arrays.' if is_technical else 'Generate a rich, personalized lesson in the specified JSON format with sections array.'}
 """
         
         return prompt.strip()

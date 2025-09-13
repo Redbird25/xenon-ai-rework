@@ -98,15 +98,73 @@ async def log_beautiful_lesson(materialized_lesson, req: MaterializeLessonReques
         section_title = section.get('title', f'Section {i}')
         section_content = section.get('content', '')
         section_examples = section.get('examples', [])
-        
+        code_examples = section.get('code_examples', [])
+        practical_exercises = section.get('practical_exercises', [])
+
         output_lines.append(f"## 📖 {section_title}")
         output_lines.append("")
         output_lines.append(section_content.strip())
         output_lines.append("")
-        
-        # Add examples if they exist
+
+        # Add code examples for technical lessons (updated for both dict and Pydantic models)
+        if code_examples and len(code_examples) > 0:
+            output_lines.append("### 💻 Code Examples")
+            output_lines.append("")
+            for j, code_example in enumerate(code_examples, 1):
+                # Handle both dictionary and Pydantic object formats
+                if isinstance(code_example, dict):
+                    context = code_example.get('context', 'General example')
+                    language = code_example.get('language', 'text')
+                    code = code_example.get('code', '')
+                    explanation = code_example.get('explanation', '')
+                else:
+                    context = code_example.context if hasattr(code_example, 'context') else 'General example'
+                    language = code_example.language if hasattr(code_example, 'language') else 'text'
+                    code = code_example.code if hasattr(code_example, 'code') else ''
+                    explanation = code_example.explanation if hasattr(code_example, 'explanation') else ''
+
+                output_lines.append(f"#### Example {j}: {context}")
+                output_lines.append("")
+                output_lines.append(f"```{language}")
+                output_lines.append(code.strip())
+                output_lines.append("```")
+                output_lines.append("")
+                if explanation:
+                    output_lines.append(f"**Explanation:** {explanation}")
+                    output_lines.append("")
+
+        # Add practical exercises for technical lessons (updated for both dict and Pydantic models)
+        if practical_exercises and len(practical_exercises) > 0:
+            output_lines.append("### 🏋️ Practical Exercises")
+            output_lines.append("")
+            for j, exercise in enumerate(practical_exercises, 1):
+                # Handle both dictionary and Pydantic object formats
+                if isinstance(exercise, dict):
+                    task = exercise.get('task', '')
+                    solution_hint = exercise.get('solution_hint', '')
+                    difficulty = exercise.get('difficulty', 'intermediate')
+                else:
+                    task = exercise.task if hasattr(exercise, 'task') else ''
+                    solution_hint = exercise.solution_hint if hasattr(exercise, 'solution_hint') else ''
+                    difficulty = exercise.difficulty if hasattr(exercise, 'difficulty') else 'intermediate'
+
+                difficulty_emoji = {
+                    'beginner': '🟢',
+                    'intermediate': '🟡',
+                    'advanced': '🔴'
+                }.get(difficulty, '🟡')
+
+                output_lines.append(f"#### Exercise {j} {difficulty_emoji} ({difficulty.title()})")
+                output_lines.append("")
+                output_lines.append(f"**Task:** {task}")
+                output_lines.append("")
+                if solution_hint:
+                    output_lines.append(f"💡 **Hint:** {solution_hint}")
+                    output_lines.append("")
+
+        # Add traditional examples if they exist
         if section_examples and len(section_examples) > 0:
-            output_lines.append("### 💡 Examples")
+            output_lines.append("### 💡 Additional Examples")
             output_lines.append("")
             for j, example in enumerate(section_examples, 1):
                 output_lines.append(f"{j}. {example}")
@@ -233,9 +291,24 @@ async def run_lesson_materialization_job(req: MaterializeLessonRequest, job_id: 
                 "description": materialized_lesson.description,
                 "sections": [
                     {
-                        "title": section.get('title', ''),
-                        "content": section.get('content', ''),
-                        "examples": section.get('examples', [])
+                        "title": section.get('title', '') if isinstance(section, dict) else getattr(section, 'title', ''),
+                        "content": section.get('content', '') if isinstance(section, dict) else getattr(section, 'content', ''),
+                        "examples": section.get('examples', []) if isinstance(section, dict) else getattr(section, 'examples', []),
+                        "code_examples": [
+                            {
+                                "language": ce.get('language', '') if isinstance(ce, dict) else getattr(ce, 'language', ''),
+                                "code": ce.get('code', '') if isinstance(ce, dict) else getattr(ce, 'code', ''),
+                                "explanation": ce.get('explanation', '') if isinstance(ce, dict) else getattr(ce, 'explanation', ''),
+                                "context": ce.get('context', '') if isinstance(ce, dict) else getattr(ce, 'context', '')
+                            } for ce in (section.get('code_examples', []) if isinstance(section, dict) else getattr(section, 'code_examples', []))
+                        ],
+                        "practical_exercises": [
+                            {
+                                "task": ex.get('task', '') if isinstance(ex, dict) else getattr(ex, 'task', ''),
+                                "solution_hint": ex.get('solution_hint', '') if isinstance(ex, dict) else getattr(ex, 'solution_hint', ''),
+                                "difficulty": ex.get('difficulty', 'intermediate') if isinstance(ex, dict) else getattr(ex, 'difficulty', 'intermediate')
+                            } for ex in (section.get('practical_exercises', []) if isinstance(section, dict) else getattr(section, 'practical_exercises', []))
+                        ]
                     }
                     for section in (materialized_lesson.content.get('sections', []) if hasattr(materialized_lesson, 'content') and materialized_lesson.content else [])
                 ],
