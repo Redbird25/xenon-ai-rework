@@ -463,6 +463,9 @@ Create unique combinations like "AI for gaming", "Backend for music apps", "Fron
         from datetime import datetime
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
         
+        # Define newline for f-string (can't use backslash directly in f-string)
+        nl = '\\n'
+
         prompt = f"""
 You are an expert educational content creator specializing in personalized programming education.
 
@@ -507,13 +510,13 @@ MANDATORY PERSONALIZATION RULES:
       "code_examples": [
         {{
           "language": "javascript",
-          "code": "import React, {{ useState }} from 'react';\\n\\nfunction GameScore() {{\\n  const [score, setScore] = useState(0);\\n\\n  return (\\n    <div>\\n      <p>Score: {{score}}</p>\\n      <button onClick={{() => setScore(score + 1)}}>\\n        Add Point\\n      </button>\\n    </div>\\n  );\\n}}",
+          "code": "import React, {{ useState }} from 'react';{nl}{nl}function GameScore() {{{nl}  const [score, setScore] = useState(0);{nl}{nl}  return ({nl}    <div>{nl}      <p>Score: {{score}}</p>{nl}      <button onClick={{() => setScore(score + 1)}}>{nl}        Add Point{nl}      </button>{nl}    </div>{nl}  );{nl}}}",
           "explanation": "This example shows a gaming score tracker using useState. The score starts at 0 and increases when the button is clicked.",
           "context": "Gaming score tracker for {interests_str[0] if interests_str else 'your hobby'}"
         }},
         {{
           "language": "javascript",
-          "code": "const [photoFilter, setPhotoFilter] = useState('none');\\n\\nconst applyFilter = (filterType) => {{\\n  setPhotoFilter(filterType);\\n  // Apply filter logic here\\n}};",
+          "code": "const [photoFilter, setPhotoFilter] = useState('none');{nl}{nl}const applyFilter = (filterType) => {{{nl}  setPhotoFilter(filterType);{nl}  // Apply filter logic here{nl}}};",
           "explanation": "Managing photo filter state for an image editing application.",
           "context": "Photo editing app for photography enthusiasts"
         }}
