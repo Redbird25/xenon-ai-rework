@@ -87,6 +87,10 @@ class Settings(BaseSettings):
         default="http://materialization-service:8084/materialization/callback",
         description="URL for lesson materialization callbacks"
     )
+    redis_url: Optional[str] = Field(
+        default="redis://localhost:6379/0",
+        description="Redis URL for ephemeral caching (e.g., redis://localhost:6379/0)"
+    )
     
     # Rate Limiting
     rate_limit_rpm: int = Field(default=200)
@@ -95,6 +99,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
+    
+    # Quiz / cache settings
+    quiz_spec_ttl_seconds: int = Field(default=86400, description="TTL for cached quiz specs in seconds")
     
     @field_validator("chunk_overlap")
     def validate_chunk_overlap(cls, v, info):

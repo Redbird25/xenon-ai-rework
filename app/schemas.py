@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import List, Optional, Literal, Dict, Any, Union
+from pydantic import BaseModel, Field
+
 from typing import Optional, List, Dict, Any, Literal
 
 
@@ -13,6 +15,106 @@ class IngestRequest(BaseModel):
 class IngestResponse(BaseModel):
     status: str
     job_id: str
+
+
+# ======================= Quiz Schemas =======================
+
+class UserPref(BaseModel):
+    interests: List[str] = Field(default_factory=list)
+    hobbies: List[str] = Field(default_factory=list)
+    learning_style: str = Field(default="TEXT")
+
+
+class QuizGenerateRequest(BaseModel):
+    # Identification
+    lesson_material_id: str
+    # New topic-based inputs from Core
+    title: str
+    description: Optional[str] = None
+    language: Optional[str] = None  # e.g., 'uz', 'en'
+    # Backward compatibility: allow explicit chunk ids if provided
+    generated_chunks: Optional[List[int]] = None
+    # Preferences and knobs
+    user_pref: UserPref
+    course_id: Optional[str] = None  # ignored for topic-based search
+    question_count: int = Field(default=10, ge=1, le=50)
+    open_ratio: float = Field(default=0.4, ge=0.0, le=1.0)
+    mcq_multi_allowed: bool = Field(default=True)
+    callback_url: Optional[str] = None  # optional; defaults to env
+
+
+class QuizGenerateResponse(BaseModel):
+    status: str
+    job_id: str
+
+
+class QuizOption(BaseModel):
+    id: str
+    text: str
+
+
+class QuizQuestion(BaseModel):
+    id: str
+    type: Literal['open', 'short_answer', 'mcq_single', 'mcq_multi']
+    prompt: str
+    # Closed-form fields
+    options: Optional[List[QuizOption]] = None
+    correct_option_ids: Optional[List[str]] = None
+    # Open-form fields
+    acceptable_answers: Optional[List[str]] = None
+    acceptable_keywords: Optional[List[List[str]]] = None
+    # Common fields
+    source_chunk_ids: List[int] = Field(default_factory=list)
+    difficulty: Optional[Literal['easy','medium','hard']] = None
+    explanation: Optional[str] = None
+
+
+class QuizContent(BaseModel):
+    quiz_id: str
+    language: str = Field(default="en")
+    questions: List[QuizQuestion]
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class QuizCallbackPayload(BaseModel):
+    job_id: str
+    lesson_material_id: str
+    status: Literal['success','failed']
+    description: str
+    content: Optional[QuizContent] = None
+
+
+# Evaluation
+class UserAnswer(BaseModel):
+    question_id: str
+    # For mcq: list of option ids; for open/short_answer: a single string
+    answer: Union[str, List[str]]
+
+
+class QuestionVerdict(BaseModel):
+    question_id: str
+    verdict: Literal['correct','partial','incorrect']
+    score: float = Field(ge=0.0, le=1.0)
+    explanation: Optional[str] = None
+
+
+class QuizEvaluateResponse(BaseModel):
+    quiz_id: str
+    score_percent: float = Field(ge=0.0, le=100.0)
+    details: List[QuestionVerdict]
+
+
+# Minimal evaluate payload items: only question text and user's answer
+class QAItem(BaseModel):
+    question: str
+    answer: Union[str, List[str]]
+
+
+
+
+class QuizEvaluateByLessonRequest(BaseModel):
+    lesson_material_id: str
+    items: List[QAItem]
 
 
 class UserPreferences(BaseModel):

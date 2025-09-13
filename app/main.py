@@ -14,7 +14,7 @@ from app.models import IngestJob, Document, SearchQuery, MaterializedLesson
 from app.config import settings
 from app.core.logging import get_logger, setup_logging, request_id_var
 from app.core.exceptions import AIIngestException
-from app.routes import ingest_routes, search_routes, lesson_routes, test_routes
+from app.routes import ingest_routes, search_routes, lesson_routes, test_routes, quiz_routes
 from app.db import engine
  
 
@@ -154,6 +154,7 @@ app.include_router(ingest_routes.router)
 app.include_router(search_routes.router)
 app.include_router(lesson_routes.router)
 app.include_router(test_routes.router)
+app.include_router(quiz_routes.router)
 
 
 @app.get("/health")
