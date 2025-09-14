@@ -87,6 +87,7 @@ async def run_quiz_job(req, job_id: str):
         result = {
             "job_id": job_id,
             "lesson_material_id": req.lesson_material_id,
+            "quizId": getattr(req, 'quiz_id', None),
             "status": "success",
             "description": "Quiz generated successfully.",
             # Only questions and options for Core
@@ -98,6 +99,7 @@ async def run_quiz_job(req, job_id: str):
         result = {
             "job_id": job_id,
             "lesson_material_id": getattr(req, 'lesson_material_id', None),
+            "quizId": getattr(req, 'quiz_id', None),
             "status": "failed",
             "description": str(e),
             "content": None

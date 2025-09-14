@@ -28,6 +28,8 @@ class UserPref(BaseModel):
 class QuizGenerateRequest(BaseModel):
     # Identification
     lesson_material_id: str
+    # Optional external quiz identifier from Core (echoed back in callback)
+    quiz_id: Optional[str] = Field(default=None, validation_alias="quizId")
     # New topic-based inputs from Core
     title: str
     description: Optional[str] = None
@@ -75,6 +77,7 @@ class QuizContent(BaseModel):
 class QuizCallbackPayload(BaseModel):
     job_id: str
     lesson_material_id: str
+    quiz_id: Optional[str] = Field(default=None, serialization_alias="quizId")
     status: Literal['success','failed']
     description: str
     content: Optional[QuizContent] = None
