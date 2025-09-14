@@ -1,7 +1,7 @@
 """
 Modern LLM module using LangChain with support for multiple providers
 """
- from typing import Dict, Any, Optional, List, AsyncIterator
+from typing import Dict, Any, Optional, List, AsyncIterator
 from abc import ABC, abstractmethod
 import json
 from langchain_google_genai import ChatGoogleGenerativeAI
