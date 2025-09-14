@@ -31,16 +31,12 @@ class QuizGenerateRequest(BaseModel):
     # New topic-based inputs from Core
     title: str
     description: Optional[str] = None
-    language: Optional[str] = None  # e.g., 'uz', 'en'
-    # Backward compatibility: allow explicit chunk ids if provided
-    generated_chunks: Optional[List[int]] = None
     # Preferences and knobs
     user_pref: UserPref
     course_id: Optional[str] = None  # ignored for topic-based search
     question_count: int = Field(default=10, ge=1, le=50)
     open_ratio: float = Field(default=0.4, ge=0.0, le=1.0)
     mcq_multi_allowed: bool = Field(default=True)
-    callback_url: Optional[str] = None  # optional; defaults to env
 
 
 class QuizGenerateResponse(BaseModel):
@@ -107,7 +103,8 @@ class QuizEvaluateResponse(BaseModel):
 # Minimal evaluate payload items: only question text and user's answer
 class QAItem(BaseModel):
     question: str
-    answer: Union[str, List[str]]
+    # Always send answers as an array, even for open/short
+    answer: List[str]
 
 
 

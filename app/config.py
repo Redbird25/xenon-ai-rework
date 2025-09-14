@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         description="URL for lesson materialization callbacks"
     )
     redis_url: Optional[str] = Field(
-        default="redis://redis:6379/0",
+        default="redis://localhost:6379/0",
         description="Redis URL for ephemeral caching (e.g., redis://localhost:6379/0)"
     )
     

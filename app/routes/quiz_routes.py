@@ -1,7 +1,6 @@
-from typing import Union
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from app.schemas import (
-    QuizGenerateRequest, QuizGenerateResponse,
+    QuizGenerateRequest,
     QuizEvaluateResponse, QuizEvaluateByLessonRequest,
     QuizCallbackPayload
 )
@@ -15,28 +14,21 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/ai/quiz", tags=["quiz"])
 
 
-@router.post("/generate", response_model=Union[QuizGenerateResponse, QuizCallbackPayload])
+@router.post("/generate", response_model=QuizCallbackPayload)
 async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
     try:
         import uuid as _uuid
         job_id = str(_uuid.uuid4())
 
-        # If callback_url provided -> async job + accepted
-        if getattr(req, 'callback_url', None):
-            background.add_task(run_quiz_job, req, job_id)
-            return QuizGenerateResponse(status="accepted", job_id=job_id)
-
-        # No callback_url -> generate synchronously and return the exact JSON payload
+        # Generate synchronously and return the exact JSON payload
         generator = QuizGenerator()
-        # Determine chunk ids: prefer explicit; else select by title/description/language
-        chunk_ids = req.generated_chunks or []
-        if not chunk_ids:
-            chunk_ids = await select_chunk_ids_for_topic(
-                title=req.title,
-                description=req.description,
-                language=req.language,
-                top_k=max(20, int(getattr(req, 'question_count', 10)) * 4)
-            )
+        # Determine chunk ids by title/description/language
+        chunk_ids = await select_chunk_ids_for_topic(
+            title=req.title,
+            description=req.description,
+            language=None,
+            top_k=max(20, int(getattr(req, 'question_count', 10)) * 4)
+        )
         topic_context = None
         if not chunk_ids:
             topic_context = (f"Topic: {req.title}\n\nDescription: {req.description or ''}").strip()
@@ -46,7 +38,7 @@ async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
             question_count=getattr(req, 'question_count', 10),
             open_ratio=getattr(req, 'open_ratio', 0.4),
             mcq_multi_allowed=getattr(req, 'mcq_multi_allowed', True),
-            language_override=req.language,
+            language_override=None,
             topic_context=topic_context,
             topic_title=req.title,
             topic_description=req.description

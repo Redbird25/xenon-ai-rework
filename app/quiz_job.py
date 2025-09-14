@@ -43,14 +43,12 @@ async def run_quiz_job(req, job_id: str):
     try:
         generator = QuizGenerator()
         # Determine chunk_ids: prefer explicit; else select by title/description/language
-        chunk_ids = getattr(req, 'generated_chunks', None) or []
-        if not chunk_ids:
-            chunk_ids = await select_chunk_ids_for_topic(
-                title=getattr(req, 'title', ''),
-                description=getattr(req, 'description', None),
-                language=getattr(req, 'language', None),
-                top_k=max(20, int(getattr(req, 'question_count', 10)) * 4)
-            )
+        chunk_ids = await select_chunk_ids_for_topic(
+            title=getattr(req, 'title', ''),
+            description=getattr(req, 'description', None),
+            language=None,
+            top_k=max(20, int(getattr(req, 'question_count', 10)) * 4)
+        )
         # Build topic context if still nothing was found
         topic_context = None
         if not chunk_ids:
@@ -63,7 +61,7 @@ async def run_quiz_job(req, job_id: str):
             question_count=getattr(req, 'question_count', 10),
             open_ratio=getattr(req, 'open_ratio', 0.4),
             mcq_multi_allowed=getattr(req, 'mcq_multi_allowed', True),
-            language_override=getattr(req, 'language', None),
+            language_override=None,
             topic_context=topic_context,
             topic_title=getattr(req, 'title', None),
             topic_description=getattr(req, 'description', None)

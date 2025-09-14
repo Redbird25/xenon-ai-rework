@@ -109,7 +109,22 @@ class QuizGenerator:
     ) -> Dict[str, Any]:
         # Load chunks
         chunks = await _fetch_chunks_texts(chunk_ids)
-        language = (language_override or _majority_language(chunks))
+        # Infer language and script preference
+        def _contains_cyrillic(s: str) -> bool:
+            return any('\u0400' <= ch <= '\u04FF' for ch in s)
+
+        topic_text = ((topic_title or "") + " " + (topic_description or "")).strip()
+        inferred_lang = None
+        if topic_text:
+            if _contains_cyrillic(topic_text):
+                inferred_lang = "uz-Cyrl"
+            else:
+                # Heuristic: assume Uzbek Latin for Uzbek topics without Cyrillic
+                # Fallback to majority if clearly not Uzbek
+                inferred_lang = "uz-Latn"
+
+        # Do NOT infer from chunks; rely only on title/description (or explicit override)
+        language = language_override or inferred_lang or "en"
 
         # Build compact context (truncate if too long)
         joined = "\n\n".join((c["text"] or "").strip() for c in chunks)
@@ -129,6 +144,8 @@ class QuizGenerator:
             "properties": {
                 "questions": {
                     "type": "array",
+                    "minItems": question_count,
+                    "maxItems": question_count,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -308,13 +325,163 @@ class QuizGenerator:
             return open_items, closed_items
 
         open_items, closed_items = _split_by_type(normalized)
-        # Trim if too many
-        if len(open_items) > open_target:
-            open_items = open_items[:open_target]
-        if len(closed_items) > closed_target:
-            closed_items = closed_items[:closed_target]
-        selected = open_items + closed_items
-        # If insufficient, just return what we have (no filler)
+        # Select up to targets first
+        open_sel = open_items[:open_target]
+        closed_sel = closed_items[:closed_target]
+        selected = open_sel + closed_sel
+
+        # If we have less than requested, attempt a top-up pass
+        if len(selected) < question_count:
+            remaining = question_count - len(selected)
+            need_open = max(0, open_target - len(open_sel))
+            need_closed = max(0, closed_target - len(closed_sel))
+
+            # Try to pull additional from existing overflow first (to avoid extra LLM calls)
+            extra_from_existing: List[Dict[str, Any]] = []
+            extra_from_existing.extend(open_items[len(open_sel):])
+            extra_from_existing.extend(closed_items[len(closed_sel):])
+
+            # Deduplicate by prompt
+            used_prompts = {q["prompt"].strip().lower() for q in selected}
+            for q in extra_from_existing:
+                if len(selected) >= question_count:
+                    break
+                p = str(q.get("prompt") or "").strip().lower()
+                if not p or p in used_prompts:
+                    continue
+                selected.append(q)
+                used_prompts.add(p)
+
+            # If still short, ask LLM to generate exactly the remaining number
+            if len(selected) < question_count:
+                to_add = question_count - len(selected)
+                add_open = min(need_open, to_add)
+                add_closed = min(need_closed, max(0, to_add - add_open))
+                # Build a constrained request
+                add_schema: Dict[str, Any] = {
+                    "type": "object",
+                    "properties": {
+                        "questions": {
+                            "type": "array",
+                            "minItems": to_add,
+                            "maxItems": to_add,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "type": {"type": "string"},
+                                    "prompt": {"type": "string"},
+                                    "options": {
+                                        "type": "array",
+                                        "items": {"type": "object", "properties": {
+                                            "id": {"type": "string"},
+                                            "text": {"type": "string"}
+                                        }, "required": ["id","text"]}
+                                    },
+                                    "correct_option_ids": {"type": "array", "items": {"type": "string"}},
+                                    "acceptable_answers": {"type": "array", "items": {"type": "string"}},
+                                    "acceptable_keywords": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                                    "difficulty": {"type": "string"},
+                                    "explanation": {"type": "string"}
+                                },
+                                "required": ["id","type","prompt"]
+                            }
+                        }
+                    },
+                    "required": ["questions"]
+                }
+
+                existing_prompts_str = "\n".join(f"- {pr}" for pr in used_prompts if pr)
+                add_instructions = (
+                    f"Language: {language}\n"
+                    f"Add exactly {to_add} more questions strictly about the topic.\n"
+                    f"Target additional count: open={add_open}, closed={add_closed} (use mcq_single/mcq_multi for closed).\n"
+                    "Avoid any duplicates with this list (case-insensitive):\n"
+                    f"{existing_prompts_str}\n\n"
+                    "Return only valid JSON matching the schema."
+                )
+                add_content_prompt = (
+                    "Source content (for context):\n\n" + joined
+                )
+                try:
+                    add_raw = await self.llm.generate_json(
+                        prompt=add_instructions + "\n\n" + add_content_prompt,
+                        schema=add_schema,
+                        system_prompt=system_prompt
+                    )
+                    add_qs = add_raw.get("questions", []) if isinstance(add_raw, dict) else []
+                    # Normalize and append
+                    for idx, q in enumerate(add_qs, start=1):
+                        if not isinstance(q, dict):
+                            continue
+                        qtype = str(q.get("type", "")).strip().lower()
+                        if qtype not in ALLOWED_TYPES:
+                            continue
+                        prompt_txt = str(q.get("prompt") or "").strip()
+                        if not prompt_txt:
+                            continue
+                        if prompt_txt.strip().lower() in used_prompts:
+                            continue
+                        # Reuse normalization logic (inline minimal)
+                        item: Dict[str, Any] = {
+                            "id": str(q.get("id") or f"add{idx}"),
+                            "type": qtype,
+                            "prompt": prompt_txt,
+                            "source_chunk_ids": list(chunk_ids),
+                            "difficulty": (str(q.get("difficulty") or "").lower() or "medium"),
+                            "explanation": (q.get("explanation") or "")
+                        }
+                        if qtype in {"open","short_answer"}:
+                            acc = q.get("acceptable_answers") or []
+                            acc = [str(a).strip() for a in acc if str(a).strip()]
+                            if len(acc) < 2:
+                                acc.append(prompt_txt)
+                            kw = q.get("acceptable_keywords") or []
+                            kw_norm = []
+                            if isinstance(kw, list):
+                                for arr in kw:
+                                    if isinstance(arr, list):
+                                        kw_norm.append([str(x).strip() for x in arr if str(x).strip()])
+                            item["acceptable_answers"] = acc[:6]
+                            item["acceptable_keywords"] = [k for k in kw_norm if k][:3]
+                        else:
+                            opts = q.get("options") or []
+                            if not isinstance(opts, list):
+                                continue
+                            options: List[Dict[str, str]] = []
+                            used_o_ids: set[str] = set()
+                            for oi, opt in enumerate(opts, start=1):
+                                if not isinstance(opt, dict):
+                                    continue
+                                oid = str(opt.get("id") or chr(ord('a') + oi - 1))
+                                if oid in used_o_ids:
+                                    oid = f"{oid}{oi}"
+                                used_o_ids.add(oid)
+                                text = str(opt.get("text") or "").strip()
+                                if not text:
+                                    continue
+                                options.append({"id": oid, "text": text})
+                            if len(options) < 2:
+                                continue
+                            correct = q.get("correct_option_ids") or []
+                            correct = [str(c) for c in correct if str(c)]
+                            if qtype == "mcq_single":
+                                if len(correct) != 1:
+                                    correct = correct[:1]
+                                    if not correct:
+                                        continue
+                            elif qtype == "mcq_multi":
+                                if not correct or len(correct) < 2:
+                                    continue
+                            item["options"] = options
+                            item["correct_option_ids"] = correct
+
+                        selected.append(item)
+                        used_prompts.add(prompt_txt.strip().lower())
+                        if len(selected) >= question_count:
+                            break
+                except Exception:
+                    pass
 
         quiz = {
             "quiz_id": str(uuid.uuid4()),
@@ -514,7 +681,11 @@ class AnswerEvaluator:
                 explanation = "Checked selected options against correct keys."
 
             elif qtype in {"open", "short_answer"}:
-                ua = str(user_ans or "").strip()
+                # Accept answers always as array (join to single string)
+                if isinstance(user_ans, list):
+                    ua = " ".join([str(x).strip() for x in user_ans if str(x).strip()])
+                else:
+                    ua = str(user_ans or "").strip()
                 if not ua:
                     score = 0.0
                     verdict = "incorrect"
