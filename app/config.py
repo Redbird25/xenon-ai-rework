@@ -87,6 +87,10 @@ class Settings(BaseSettings):
         default="http://materialization-service:8084/materialization/callback",
         description="URL for lesson materialization callbacks"
     )
+    materialization_quiz_callback_url: str = Field(
+        default="http://materialization-service:8084/materialization/quiz/callback",
+        description="URL for lesson materialization callbacks"
+    )
     redis_url: Optional[str] = Field(
         default="redis://localhost:6379/0",
         description="Redis URL for ephemeral caching (e.g., redis://localhost:6379/0)"
