@@ -77,7 +77,7 @@ class QuizContent(BaseModel):
 class QuizCallbackPayload(BaseModel):
     job_id: str
     lesson_material_id: str
-    quiz_id: Optional[str] = Field(default=None, serialization_alias="quizId")
+    quiz_id: str
     status: Literal['success','failed']
     description: str
     content: Optional[QuizContent] = None
