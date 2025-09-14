@@ -263,11 +263,13 @@ class IngestService:
         Ingest text content with optional title and metadata.
         Used for generated lesson content ingestion.
         """
+        # Do not force a default language. If not provided, leave None to avoid wrong language tagging.
+        lang = (metadata or {}).get("language")
         return await self.ingest_text(
             course_id=course_id,
             raw_text=content,
             source_ref=title,
-            language=metadata.get("language", "en") if metadata else "en",
+            language=lang,
             metadata=metadata
         )
 

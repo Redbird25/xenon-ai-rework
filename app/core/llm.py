@@ -1,7 +1,7 @@
 """
 Modern LLM module using LangChain with support for multiple providers
 """
-from typing import Dict, Any, Optional, List, AsyncIterator
+ from typing import Dict, Any, Optional, List, AsyncIterator
 from abc import ABC, abstractmethod
 import json
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -350,8 +350,8 @@ Include learning objectives implicitly within lesson descriptions when relevant.
             import uuid
             modules = route.get("modules", []) or []
             for mi, module in enumerate(modules, start=1):
-                if not module.get("module_id"):
-                    module["module_id"] = str(uuid.uuid4())
+                # ALWAYS assign a fresh UUID for module_id (do not trust LLM-provided IDs)
+                module["module_id"] = str(uuid.uuid4())
                 # Ensure 'order'
                 if "order" not in module and "position" in module:
                     module["order"] = module.get("position")
@@ -373,8 +373,8 @@ Include learning objectives implicitly within lesson descriptions when relevant.
                     if not isinstance(lesson, dict):
                         # Skip invalid lesson entries
                         continue
-                    if not lesson.get("lesson_id"):
-                        lesson["lesson_id"] = str(uuid.uuid4())
+                    # ALWAYS assign a fresh UUID for lesson_id (do not trust LLM-provided IDs)
+                    lesson["lesson_id"] = str(uuid.uuid4())
                     # Ensure 'order'
                     if "order" not in lesson and "position" in lesson:
                         lesson["order"] = lesson.get("position")

@@ -586,18 +586,31 @@ async def _ingest_content(course_id: str, lesson: Any, job_id: str, content: str
     """Helper function to ingest content"""
     
     # Create a document-like structure for ingestion
+    # Infer language only from lesson title/description (no global lang).
+    # If uncertain, omit language to avoid wrong defaults.
+    def _contains_cyrillic(s: str) -> bool:
+        return any('\u0400' <= ch <= '\u04FF' for ch in s or "")
+
+    title_text = getattr(lesson, 'lesson_name', '') or ''
+    desc_text = getattr(lesson, 'description', '') or ''
+    topic_text = f"{title_text} {desc_text}"
+    inferred_lang = "uz-Cyrl" if _contains_cyrillic(topic_text) else None
+
+    metadata: Dict[str, Any] = {
+        "document_type": "generated_lesson",
+        "lesson_name": lesson.lesson_name,
+        "source": "lesson_materialization",
+        "is_generated": True,
+        "content_strategy": content_strategy,
+        "generated_from_chunks": lesson.generated_from_chunks,
+    }
+    if inferred_lang:
+        metadata["language"] = inferred_lang
+
     lesson_document = {
         "title": lesson.lesson_name,
         "content": content,
-        "metadata": {
-            "document_type": "generated_lesson",
-            "lesson_name": lesson.lesson_name,
-            "source": "lesson_materialization",
-            "is_generated": True,
-            "content_strategy": content_strategy,
-            "generated_from_chunks": lesson.generated_from_chunks,
-            "language": "en"  # Default, could be made configurable
-        }
+        "metadata": metadata
     }
     
     # Get ingest service and process the lesson content
