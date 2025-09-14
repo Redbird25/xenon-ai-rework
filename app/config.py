@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     
     # Quiz / cache settings
     quiz_spec_ttl_seconds: int = Field(default=86400, description="TTL for cached quiz specs in seconds")
+    quiz_pending_ttl_seconds: int = Field(default=3600, description="TTL for pending quiz requests")
+    quiz_lock_ttl_seconds: int = Field(default=600, description="TTL for quiz dispatch lock")
+    lesson_ready_ttl_seconds: int = Field(default=86400, description="TTL for lesson readiness flag")
     
     @field_validator("chunk_overlap")
     def validate_chunk_overlap(cls, v, info):

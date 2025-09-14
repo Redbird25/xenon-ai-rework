@@ -9,6 +9,10 @@ from datetime import datetime
 from typing import Dict, Any
 
 from app.config import settings
+from app.core.cache import get_cache
+from app.schemas import QuizGenerateRequest
+from app.quiz_job import run_quiz_job
+import asyncio
 from app.core.logging import get_logger, job_id_var
 from app.core.retry import RetryWithBackoff
 from app.core.lesson_generator import get_lesson_generator
@@ -35,6 +39,29 @@ async def send_callback(result: Dict[str, Any]):
             logger.info("Callback sent successfully",
                        job_id=job_id,
                        status=result.get("status"))
+        # After successful callback, mark lesson ready and dispatch pending quiz if any
+        try:
+            lesson_material_id = result.get("lesson_material_id")
+            if lesson_material_id:
+                cache = get_cache()
+                ready_key = f"lesson:ready:{lesson_material_id}"
+                await cache.set_json(ready_key, {"ready": True}, ttl_seconds=settings.lesson_ready_ttl_seconds)
+                pending_key = f"quiz:pending:{lesson_material_id}"
+                pending = await cache.get_json(pending_key)
+                if pending:
+                    lock_key = f"quiz:lock:{lesson_material_id}"
+                    if await cache.set_if_not_exists(lock_key, 1, ttl_seconds=settings.quiz_lock_ttl_seconds):
+                        try:
+                            req_data = pending.get("request") or {}
+                            pending_job_id = pending.get("job_id")
+                            # Reconstruct request model (aliases handled by Pydantic)
+                            req_model = QuizGenerateRequest(**req_data)
+                            asyncio.create_task(run_quiz_job(req_model, pending_job_id or str(uuid.uuid4())))
+                            await cache.delete(pending_key)
+                        except Exception as e:
+                            logger.error("Failed to dispatch pending quiz", error=str(e), lesson_material_id=lesson_material_id)
+        except Exception as e:
+            logger.error("Post-callback orchestration failed", error=str(e), job_id=job_id)
     except httpx.TimeoutException:
         logger.error(f"Callback timeout for job {job_id}")
         raise

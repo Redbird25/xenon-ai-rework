@@ -5,6 +5,8 @@ from app.schemas import (
 )
 from app.quiz_job import run_quiz_job
 from app.core.quiz import AnswerEvaluator
+from app.core.cache import get_cache
+from app.config import settings
 from app.core.logging import get_logger
 
 
@@ -18,8 +20,19 @@ async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
     try:
         import uuid as _uuid
         job_id = str(_uuid.uuid4())
-        # Start async job and immediately return accepted
-        background.add_task(run_quiz_job, req, job_id)
+        # Orchestrate with Redis pending/ready flags
+        cache = get_cache()
+        ready_key = f"lesson:ready:{req.lesson_material_id}"
+        pending_key = f"quiz:pending:{req.lesson_material_id}"
+
+        if await cache.exists(ready_key):
+            background.add_task(run_quiz_job, req, job_id)
+        else:
+            await cache.set_json(
+                pending_key,
+                {"job_id": job_id, "request": req.model_dump(by_alias=True)},
+                ttl_seconds=settings.quiz_pending_ttl_seconds,
+            )
         return QuizGenerateResponse(status="accepted", job_id=job_id)
     except Exception as e:
         logger.error("Failed to start quiz job", error=str(e))

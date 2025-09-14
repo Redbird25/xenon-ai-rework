@@ -40,6 +40,26 @@ class _InMemoryTTL:
         exp = time.time() + max(1, int(ttl))
         self._store[key] = (exp, value)
 
+    async def exists(self, key: str) -> bool:
+        return (await self.get(key)) is not None
+
+    async def delete(self, key: str):
+        try:
+            if key in self._store:
+                del self._store[key]
+        except Exception:
+            pass
+
+    async def setnx(self, key: str, ttl: int, value: str) -> bool:
+        now = time.time()
+        entry = self._store.get(key)
+        if entry:
+            exp, _ = entry
+            if exp and exp > now:
+                return False
+        await self.setex(key, ttl, value)
+        return True
+
 
 class RedisTTLCache:
     def __init__(self):
@@ -76,6 +96,39 @@ class RedisTTLCache:
                 await self._mem.setex(key, ttl, raw)
         except Exception as e:
             logger.error("Cache set failed", key=key, error=str(e))
+
+    async def exists(self, key: str) -> bool:
+        try:
+            if self._client is not None:
+                val = await self._client.exists(key)
+                return bool(val)
+            return await self._mem.exists(key)
+        except Exception as e:
+            logger.error("Cache exists failed", key=key, error=str(e))
+            return False
+
+    async def delete(self, key: str):
+        try:
+            if self._client is not None:
+                await self._client.delete(key)
+            else:
+                await self._mem.delete(key)
+        except Exception as e:
+            logger.error("Cache delete failed", key=key, error=str(e))
+
+    async def set_if_not_exists(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> bool:
+        ttl = int(ttl_seconds or settings.quiz_spec_ttl_seconds)
+        try:
+            raw = json.dumps(value, ensure_ascii=False)
+            if self._client is not None:
+                # SET key value NX EX ttl
+                res = await self._client.set(key, raw, ex=ttl, nx=True)
+                return bool(res)
+            else:
+                return await self._mem.setnx(key, ttl, raw)
+        except Exception as e:
+            logger.error("Cache set_if_not_exists failed", key=key, error=str(e))
+            return False
 
 
 _cache_singleton: Optional[RedisTTLCache] = None
