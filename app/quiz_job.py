@@ -37,7 +37,8 @@ async def run_quiz_job(req, job_id: str):
         "Quiz job started",
         job_id=job_id,
         lesson_material_id=getattr(req, 'lesson_material_id', None),
-        chunk_count=len(getattr(req, 'generated_chunks', []) or [])
+        chunk_count=len(getattr(req, 'generated_chunks', []) or []),
+        external_quiz_id=getattr(req, 'quiz_id', None)
     )
 
     try:

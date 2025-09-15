@@ -1,5 +1,5 @@
 from typing import List, Optional, Literal, Dict, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 
 from typing import Optional, List, Dict, Any, Literal
 
@@ -29,7 +29,7 @@ class QuizGenerateRequest(BaseModel):
     # Identification
     lesson_material_id: str
     # Optional external quiz identifier from Core (echoed back in callback)
-    quiz_id: Optional[str] = Field(default=None, validation_alias="quizId")
+    quiz_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("quizId", "quiz_id"))
     # New topic-based inputs from Core
     title: str
     description: Optional[str] = None

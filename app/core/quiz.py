@@ -109,19 +109,23 @@ class QuizGenerator:
     ) -> Dict[str, Any]:
         # Load chunks
         chunks = await _fetch_chunks_texts(chunk_ids)
-        # Infer language and script preference
+        # Infer language and script preference (title/description only)
         def _contains_cyrillic(s: str) -> bool:
-            return any('\u0400' <= ch <= '\u04FF' for ch in s)
+            return any('\u0400' <= ch <= '\u04FF' for ch in (s or ""))
+
+        def _contains_uzbek_cyrillic(s: str) -> bool:
+            uz_chars = set("ўқғҳЎҚҒҲ")
+            return any(ch in uz_chars for ch in (s or ""))
 
         topic_text = ((topic_title or "") + " " + (topic_description or "")).strip()
         inferred_lang = None
         if topic_text:
             if _contains_cyrillic(topic_text):
-                inferred_lang = "uz-Cyrl"
+                # Distinguish Uzbek Cyrillic vs Russian
+                inferred_lang = "uz-Cyrl" if _contains_uzbek_cyrillic(topic_text) else "ru"
             else:
-                # Heuristic: assume Uzbek Latin for Uzbek topics without Cyrillic
-                # Fallback to majority if clearly not Uzbek
-                inferred_lang = "uz-Latn"
+                # No Cyrillic present: do not force Uzbek by default
+                inferred_lang = None
 
         # Do NOT infer from chunks; rely only on title/description (or explicit override)
         language = language_override or inferred_lang or "en"
@@ -181,6 +185,9 @@ class QuizGenerator:
             script_hint = "Use Uzbek in Latin script (O‘zbek lotin alifbosi). Do not use Cyrillic."
         elif lang_lower.startswith("uz-cyrl"):
             script_hint = "Use Uzbek in Cyrillic script (Ўзбек кирилл алифбоси)."
+        else:
+            # Do not add Uzbek-specific hints for non-Uzbek languages (e.g., 'ru')
+            script_hint = script_hint
 
         system_prompt = (
             "You are an expert educational assessment designer. "
