@@ -123,7 +123,8 @@ async def run_quiz_job(req, job_id: str):
 
     # Send callback or print JSON if no valid callback_url
     # Prefer request callback if valid else fallback to env
-    callback_url = getattr(req, 'callback_url', None) or settings.materialization_quiz_callback_url
+    # Use core callback URL from settings when request doesn't specify one
+    callback_url = getattr(req, 'callback_url', None) or settings.core_callback_url
     if callback_url and isinstance(callback_url, str) and callback_url.lower().startswith(("http://","https://")):
         try:
             await send_quiz_callback(callback_url, result)

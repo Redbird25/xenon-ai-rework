@@ -26,6 +26,9 @@ async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
         pending_key = f"quiz:pending:{req.lesson_material_id}"
 
         if await cache.exists(ready_key):
+            logger.info("Lesson ready flag present — starting quiz job",
+                        lesson_material_id=req.lesson_material_id,
+                        job_id=job_id)
             background.add_task(run_quiz_job, req, job_id)
         else:
             await cache.set_json(
@@ -33,6 +36,10 @@ async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
                 {"job_id": job_id, "request": req.model_dump(by_alias=True)},
                 ttl_seconds=settings.quiz_pending_ttl_seconds,
             )
+            logger.info("Stored pending quiz request",
+                        lesson_material_id=req.lesson_material_id,
+                        pending_key=pending_key,
+                        job_id=job_id)
         return QuizGenerateResponse(status="accepted", job_id=job_id)
     except Exception as e:
         logger.error("Failed to start quiz job", error=str(e))

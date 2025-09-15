@@ -72,6 +72,11 @@ class RedisTTLCache:
                 logger.info("Redis cache initialized", url=url)
             except Exception as e:
                 logger.warning("Redis init failed, using in-memory cache", error=str(e))
+        else:
+            if not url:
+                logger.warning("REDIS_URL not configured. Using in-memory TTL cache (non-persistent)")
+            elif not Redis:
+                logger.warning("redis-py is not available. Using in-memory TTL cache (non-persistent)")
 
     async def get_json(self, key: str) -> Optional[Any]:
         try:
