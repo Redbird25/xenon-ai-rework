@@ -113,6 +113,13 @@ async def run_quiz_job(req, job_id: str):
             "content": None
         }
 
+    # Pretty-log the entire callback payload before sending (human-readable)
+    try:
+        pretty_payload = json.dumps(result, ensure_ascii=False, indent=2)
+        print("\n===== Quiz Callback Payload =====\n" + pretty_payload + "\n=================================\n")
+    except Exception:
+        pass
+
     # Send callback or print JSON if no valid callback_url
     # Prefer request callback if valid else fallback to env
     callback_url = getattr(req, 'callback_url', None) or settings.materialization_quiz_callback_url
