@@ -68,7 +68,7 @@ async def run_quiz_job(req, job_id: str):
             topic_description=getattr(req, 'description', None)
         )
 
-        # Ensure internal quiz_id matches external quizId from Core if provided
+        # Ensure internal quiz_id matches external quiz_id/quizId from Core if provided
         try:
             external_quiz_id = getattr(req, 'quiz_id', None)
             if external_quiz_id:
@@ -83,7 +83,7 @@ async def run_quiz_job(req, job_id: str):
                 key=f"quiz:lesson:{req.lesson_material_id}",
                 value={
                     "lesson_material_id": req.lesson_material_id,
-                    "quiz_id": quiz.get("quiz_id"),
+                    "quiz_id": quiz.get("quiz_id") or quiz.get("quizId"),
                     "language": quiz.get("language"),
                     "questions": quiz.get("questions", []),
                     "meta": quiz.get("meta", {})
@@ -96,7 +96,7 @@ async def run_quiz_job(req, job_id: str):
         result = {
             "job_id": job_id,
             "lesson_material_id": req.lesson_material_id,
-            "quizId": getattr(req, 'quiz_id', None),
+            "quiz_id": getattr(req, 'quiz_id', None),
             "status": "success",
             "description": "Quiz generated successfully.",
             # Only questions and options for Core
@@ -108,7 +108,7 @@ async def run_quiz_job(req, job_id: str):
         result = {
             "job_id": job_id,
             "lesson_material_id": getattr(req, 'lesson_material_id', None),
-            "quizId": getattr(req, 'quiz_id', None),
+            "quiz_id": getattr(req, 'quiz_id', None),
             "status": "failed",
             "description": str(e),
             "content": None

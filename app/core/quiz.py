@@ -566,8 +566,9 @@ def sanitize_quiz_for_delivery(quiz: Dict[str, Any]) -> Dict[str, Any]:
     """Return a minimal view for Core: only questions and options (if any).
     Keeps quiz_id for correlation; strips answers/keys/metadata.
     """
+    qid = quiz.get("quiz_id") or quiz.get("quizId")
     out: Dict[str, Any] = {
-        "quiz_id": quiz.get("quiz_id"),
+        "quiz_id": qid,
         "language": quiz.get("language"),
         "questions": []
     }
