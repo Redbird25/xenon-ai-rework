@@ -38,11 +38,14 @@ UZ_STOPWORDS = {
     "nima","qachon","qanday","qayerda","qaysi","bir","birinchi","ikkinchi","uchinchi","haqida",
 }
 RU_STOPWORDS = {
-    "и","но","это","как","что","эта","эти","этот","там","здесь","есть","для",
-    "чтобы","или","если","когда","так","же","чем","где","кто","они","мы","вы",
-    "он","она","оно","их","его","ее","сам","сама","само","тоже","очень","после",
-    "перед","при","над","под","лишь","раз","уже","ещё","бы","был","была","были",
-    "будет","будут","который","какой","такой","этого","этой","этом","этих",
+    "\u0438","\u043d\u043e","\u044d\u0442\u043e","\u043a\u0430\u043a","\u0447\u0442\u043e","\u044d\u0442\u0430","\u044d\u0442\u0438","\u044d\u0442\u043e\u0442",
+    "\u0442\u0430\u043c","\u0437\u0434\u0435\u0441\u044c","\u0435\u0441\u0442\u044c","\u0434\u043b\u044f","\u0447\u0442\u043e\u0431\u044b","\u0438\u043b\u0438","\u0435\u0441\u043b\u0438","\u043a\u043e\u0433\u0434\u0430",
+    "\u0442\u0430\u043a","\u0436\u0435","\u0447\u0435\u043c","\u0433\u0434\u0435","\u043a\u0442\u043e","\u043e\u043d\u0438","\u043c\u044b","\u0432\u044b",
+    "\u043e\u043d","\u043e\u043d\u0430","\u043e\u043d\u043e","\u0438\u0445","\u0435\u0433\u043e","\u0435\u0435","\u0441\u0430\u043c","\u0441\u0430\u043c\u0430",
+    "\u0441\u0430\u043c\u043e","\u0442\u043e\u0436\u0435","\u043e\u0447\u0435\u043d\u044c","\u043f\u043e\u0441\u043b\u0435","\u043f\u0435\u0440\u0435\u0434","\u043f\u0440\u0438","\u043d\u0430\u0434","\u043f\u043e\u0434",
+    "\u043b\u0438\u0448\u044c","\u0440\u0430\u0437","\u0443\u0436\u0435","\u0435\u0449\u0451","\u0431\u044b","\u0431\u044b\u043b","\u0431\u044b\u043b\u0430","\u0431\u044b\u043b\u0438",
+    "\u0431\u0443\u0434\u0435\u0442","\u0431\u0443\u0434\u0443\u0442","\u043a\u043e\u0442\u043e\u0440\u044b\u0439","\u043a\u0430\u043a\u043e\u0439","\u0442\u0430\u043a\u043e\u0439","\u044d\u0442\u043e\u0433\u043e","\u044d\u0442\u043e\u0439","\u044d\u0442\u043e\u043c",
+    "\u044d\u0442\u0438\u0445",
 }
 STOPWORDS = EN_STOPWORDS | UZ_STOPWORDS | RU_STOPWORDS
 NORMALIZE_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
@@ -639,6 +642,8 @@ class AnswerEvaluator:
             if s > best:
                 best = s
         return float(best)
+
+
     @staticmethod
     def _normalize_text(value: str) -> str:
         if not value:
@@ -652,6 +657,44 @@ class AnswerEvaluator:
         if not normalized_text:
             return []
         return [tok for tok in normalized_text.split() if tok and tok not in STOPWORDS]
+
+    @staticmethod
+    def _prompt_key(text: str) -> str:
+        normalized = AnswerEvaluator._normalize_text(text)
+        return normalized.replace(" ", "")
+
+    def _normalize_option_answer(self, raw_answer: Any, options: List[Dict[str, Any]]) -> Optional[str]:
+        if raw_answer is None:
+            return None
+        raw_str = str(raw_answer).strip()
+        if not raw_str:
+            return None
+        lowered = raw_str.lower()
+        id_lookup: dict[str, str] = {}
+        text_lookup: dict[str, str] = {}
+        letter_lookup: dict[str, str] = {}
+        for idx, option in enumerate(options or []):
+            if not isinstance(option, dict):
+                continue
+            opt_id = str(option.get('id') or '').strip()
+            opt_text = option.get('text') or ''
+            if opt_id:
+                id_lookup[opt_id.lower()] = opt_id
+            norm_text = self._normalize_text(opt_text)
+            if norm_text:
+                text_lookup[norm_text] = opt_id or norm_text
+            letter = chr(ord('a') + idx)
+            if opt_id:
+                letter_lookup[letter] = opt_id
+                letter_lookup[letter.upper()] = opt_id
+        if lowered in id_lookup:
+            return id_lookup[lowered]
+        if lowered in letter_lookup:
+            return letter_lookup[lowered]
+        normalized_text = self._normalize_text(raw_str)
+        if normalized_text in text_lookup:
+            return text_lookup[normalized_text]
+        return raw_str
 
     def _token_overlap_score(self, user_tokens: List[str], candidate_tokens: List[str]) -> float:
         if not user_tokens or not candidate_tokens:
@@ -681,8 +724,6 @@ class AnswerEvaluator:
             if ratio > best:
                 best = ratio
         return float(best)
-
-
     @staticmethod
     def _keyword_overlap(user: str, keyword_sets: List[List[str]]) -> float:
         if not keyword_sets:
@@ -733,21 +774,23 @@ class AnswerEvaluator:
             explanation = None
 
             if qtype in {"mcq_single", "mcq_multi"}:
-                expected = set((q.get("correct_option_ids") or []))
-                if isinstance(user_ans, list):
-                    ua_set = set(str(x) for x in user_ans)
-                else:
-                    ua_set = set([str(user_ans)]) if user_ans is not None else set()
+                expected = set(str(x) for x in (q.get("correct_option_ids") or []))
+                options = q.get("options") or []
+                normalized_answers: list[str] = []
+                answers_iter = user_ans if isinstance(user_ans, list) else [user_ans]
+                for raw in answers_iter:
+                    mapped = self._normalize_option_answer(raw, options)
+                    if mapped is not None:
+                        normalized_answers.append(str(mapped))
+                ua_set = set(normalized_answers)
                 if qtype == "mcq_single":
                     score = 1.0 if len(expected) == 1 and ua_set == expected else 0.0
                 else:
-                    # Partial credit for multi: Jaccard on expected vs chosen
                     inter = len(expected & ua_set)
                     union = len(expected | ua_set) if (expected or ua_set) else 1
                     j = inter / union
-                    # Penalize extra incorrect picks slightly
                     over = max(0, len(ua_set - expected))
-                    score = max(0.0, j - 0.1*over)
+                    score = max(0.0, j - 0.1 * over)
                     score = float(min(1.0, score))
                 verdict = "correct" if score >= 0.995 else ("partial" if score >= 0.5 else "incorrect")
                 explanation = "Checked selected options against correct keys."
@@ -940,7 +983,7 @@ class AnswerEvaluator:
         questions = spec.get("questions", []) or []
         # Build index by normalized prompt
         def norm(s: str) -> str:
-            return (s or "").strip().lower()
+            return self._prompt_key(s)
 
         idx_by_prompt: Dict[str, Dict[str, Any]] = {}
         for q in questions:
@@ -1002,7 +1045,7 @@ class AnswerEvaluator:
         language = spec.get("language")
 
         def norm(s: str) -> str:
-            return (s or "").strip().lower()
+            return self._prompt_key(s)
 
         idx_by_prompt: Dict[str, Dict[str, Any]] = {}
         for q in questions:
