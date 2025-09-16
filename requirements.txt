@@ -60,9 +60,9 @@ python-multipart
 markdown
 
 # Optional utils (not currently used)
-# redis
-# aiocache
-# nltk
+redis
+aiocache
+nltk
 
 # Testing
 pytest

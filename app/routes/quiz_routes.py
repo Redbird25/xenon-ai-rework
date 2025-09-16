@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from app.schemas import (
     QuizGenerateRequest, QuizGenerateResponse,
-    QuizEvaluateResponse, QuizEvaluateByLessonRequest,
+    QuizEvaluateResponse, QuizEvaluateByQuizRequest,
 )
 from app.quiz_job import run_quiz_job, send_quiz_callback
 from app.core.quiz import AnswerEvaluator
@@ -66,11 +66,11 @@ async def generate_quiz(req: QuizGenerateRequest, background: BackgroundTasks):
 
 
 @router.post("/evaluate", response_model=QuizEvaluateResponse)
-async def evaluate_quiz(req: QuizEvaluateByLessonRequest):
+async def evaluate_quiz(req: QuizEvaluateByQuizRequest):
     try:
         evaluator = AnswerEvaluator()
-        result = await evaluator.evaluate_by_lesson(
-            lesson_material_id=req.lesson_material_id,
+        result = await evaluator.evaluate_by_quiz_id(
+            quiz_id=req.quiz_id,
             items=[i.model_dump() for i in req.items]
         )
         return QuizEvaluateResponse(**result)

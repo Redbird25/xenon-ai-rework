@@ -89,6 +89,18 @@ async def run_quiz_job(req, job_id: str):
                     "meta": quiz.get("meta", {})
                 }
             )
+            # Also store by quiz id for direct lookup during evaluation
+            qid = quiz.get("quiz_id") or quiz.get("quizId")
+            if qid:
+                await cache.set_json(
+                    key=f"quiz:id:{qid}",
+                    value={
+                        "quiz_id": qid,
+                        "language": quiz.get("language"),
+                        "questions": quiz.get("questions", []),
+                        "meta": quiz.get("meta", {})
+                    }
+                )
         except Exception as _:
             # Cache is optional; continue even if it fails
             pass

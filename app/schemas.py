@@ -112,8 +112,8 @@ class QAItem(BaseModel):
 
 
 
-class QuizEvaluateByLessonRequest(BaseModel):
-    lesson_material_id: str
+class QuizEvaluateByQuizRequest(BaseModel):
+    quiz_id: str = Field(validation_alias=AliasChoices("quizId", "quiz_id"))
     items: List[QAItem]
 
 

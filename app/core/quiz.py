@@ -901,3 +901,58 @@ class AnswerEvaluator:
 
         result = await self.evaluate({"quiz_id": quiz_id, "questions": content_questions}, answers)
         return result
+
+    async def evaluate_by_quiz_id(self, quiz_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Evaluate answers using full quiz spec fetched by quiz_id from Redis cache."""
+        cache = get_cache()
+        key = f"quiz:id:{quiz_id}"
+        spec = await cache.get_json(key)
+        if not spec or not isinstance(spec, dict):
+            # Fallback minimal if no spec found
+            return await self.evaluate_minimal(items=items)
+
+        questions = spec.get("questions", []) or []
+        language = spec.get("language")
+
+        def norm(s: str) -> str:
+            return (s or "").strip().lower()
+
+        idx_by_prompt: Dict[str, Dict[str, Any]] = {}
+        for q in questions:
+            if isinstance(q, dict) and q.get("prompt"):
+                idx_by_prompt[norm(str(q.get("prompt")))] = q
+
+        content_questions: List[Dict[str, Any]] = []
+        answers: List[Dict[str, Any]] = []
+        for i, item in enumerate(items, start=1):
+            qtext = str(item.get("question") or "").strip()
+            uans = item.get("answer")
+            if not qtext:
+                continue
+            match = idx_by_prompt.get(norm(qtext))
+            if match:
+                qid = match.get("id") or f"q{i}"
+                content_questions.append({**match, "id": qid})
+                answers.append({"question_id": qid, "answer": uans})
+            else:
+                # Build expected from all chunks in this quiz spec
+                chunk_union: List[int] = []
+                try:
+                    for q in questions:
+                        if isinstance(q, dict):
+                            chunk_union.extend([int(x) for x in (q.get("source_chunk_ids") or [])])
+                except Exception:
+                    pass
+                expected = await self._expected_from_context(qtext, list(set(chunk_union)), language)
+                qmock = {
+                    "id": f"q{i}",
+                    "type": "open",
+                    "prompt": qtext,
+                    "acceptable_answers": expected.get("acceptable_answers", []),
+                    "acceptable_keywords": expected.get("acceptable_keywords", []),
+                    "source_chunk_ids": list(set(chunk_union))
+                }
+                content_questions.append(qmock)
+                answers.append({"question_id": qmock["id"], "answer": uans})
+
+        return await self.evaluate({"quiz_id": quiz_id, "questions": content_questions}, answers)
