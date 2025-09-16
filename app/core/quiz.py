@@ -724,10 +724,10 @@ class AnswerEvaluator:
             total += score
             count += 1
 
-        score_percent = (total / count * 100.0) if count else 0.0
+        score_ratio = (total / count) if count else 0.0
         return {
             "quiz_id": content.get("quiz_id"),
-            "score_percent": round(score_percent, 2),
+            "score_percent": round(score_ratio, 4),
             "details": details
         }
 
@@ -838,8 +838,8 @@ class AnswerEvaluator:
                 total += result["details"][0]["score"]
                 count += 1
 
-        score_percent = (total / count * 100.0) if count else 0.0
-        return {"quiz_id": quiz_id, "score_percent": round(score_percent, 2), "details": details}
+        score_ratio = (total / count) if count else 0.0
+        return {"quiz_id": quiz_id, "score_percent": round(score_ratio, 4), "details": details}
 
     async def evaluate_by_lesson(self, lesson_material_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Evaluate answers using full quiz spec fetched by lesson_material_id from Redis cache."""

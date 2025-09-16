@@ -91,15 +91,26 @@ class UserAnswer(BaseModel):
 
 
 class QuestionVerdict(BaseModel):
-    question_id: str
+    question_id: str = Field(
+        serialization_alias="questionId",
+        validation_alias=AliasChoices("questionId", "question_id"),
+    )
     verdict: Literal['correct','partial','incorrect']
     score: float = Field(ge=0.0, le=1.0)
     explanation: Optional[str] = None
 
 
 class QuizEvaluateResponse(BaseModel):
-    quiz_id: str
-    score_percent: float = Field(ge=0.0, le=100.0)
+    quiz_id: str = Field(
+        serialization_alias="quizId",
+        validation_alias=AliasChoices("quizId", "quiz_id"),
+    )
+    score_percent: float = Field(
+        ge=0.0,
+        le=1.0,
+        serialization_alias="scorePercent",
+        validation_alias=AliasChoices("scorePercent", "score_percent"),
+    )
     details: List[QuestionVerdict]
 
 
