@@ -20,6 +20,7 @@ from app.ingest import get_ingest_service
 from app.db import async_session
 from app.models import IngestJob, MaterializedLesson
 from app.schemas import MaterializeLessonRequest
+from app.utils.language import detect_language, normalize_language_code
 from sqlalchemy import select
 
 logger = get_logger(__name__)
@@ -653,15 +654,15 @@ async def _ingest_content(course_id: str, lesson: Any, job_id: str, content: str
     """Helper function to ingest content"""
     
     # Create a document-like structure for ingestion
-    # Infer language only from lesson title/description (no global lang).
-    # If uncertain, omit language to avoid wrong defaults.
-    def _contains_cyrillic(s: str) -> bool:
-        return any('\u0400' <= ch <= '\u04FF' for ch in s or "")
+    title_text = getattr(lesson, "lesson_name", "") or ""
+    desc_text = getattr(lesson, "description", "") or ""
+    detection_texts = [title_text, desc_text, content[:2000]]
 
-    title_text = getattr(lesson, 'lesson_name', '') or ''
-    desc_text = getattr(lesson, 'description', '') or ''
-    topic_text = f"{title_text} {desc_text}"
-    inferred_lang = "uz-Cyrl" if _contains_cyrillic(topic_text) else None
+    preferred_language = None
+    if hasattr(lesson, "content") and isinstance(lesson.content, dict):
+        preferred_language = lesson.content.get("language")
+
+    language_guess = detect_language(detection_texts, fallback=preferred_language, min_confidence=0.6)
 
     metadata: Dict[str, Any] = {
         "document_type": "generated_lesson",
@@ -671,8 +672,13 @@ async def _ingest_content(course_id: str, lesson: Any, job_id: str, content: str
         "content_strategy": content_strategy,
         "generated_from_chunks": lesson.generated_from_chunks,
     }
-    if inferred_lang:
-        metadata["language"] = inferred_lang
+
+    if language_guess and language_guess.code:
+        metadata["language"] = language_guess.code
+    elif preferred_language:
+        normalized = normalize_language_code(preferred_language)
+        if normalized:
+            metadata["language"] = normalized
 
     lesson_document = {
         "title": lesson.lesson_name,

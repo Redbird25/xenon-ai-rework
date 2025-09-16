@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
 import uuid
 import math
+from difflib import SequenceMatcher
 import asyncio
 import re
 
@@ -17,6 +18,7 @@ from app.core.logging import get_logger, metrics_logger
 from app.core.cache import get_cache
 from app.core.llm import get_llm_provider
 from app.core.vector_search import get_search_engine
+from app.utils.language import choose_language, normalize_language_code
 
 
 logger = get_logger(__name__)
@@ -25,17 +27,26 @@ logger = get_logger(__name__)
 ALLOWED_TYPES = {"open", "short_answer", "mcq_single", "mcq_multi"}
 
 
-# Very small multilingual stopword list (en + uz basics)
-STOPWORDS = set(
-    [
-        # English
-        "the","and","or","a","an","of","to","in","on","for","with","by","is","are","was","were",
-        "be","as","at","that","this","it","from","into","about","over","under","between","within",
-        # Uzbek (basic)
-        "va","yoki","bu","shu","o‘sha","ham","lekin","uchun","bilan","siz","biz","ular","nima",
-        "qachon","qanday","qayerda","qaysi","bir","birinchi","ikkinchi","uchinchi","haqida"
-    ]
-)
+# Very small multilingual stopword list (en + uz + ru basics)
+EN_STOPWORDS = {
+    "the","and","or","a","an","of","to","in","on","for","with","by",
+    "is","are","was","were","be","as","at","that","this","it","from","into",
+    "about","over","under","between","within",
+}
+UZ_STOPWORDS = {
+    "va","yoki","bu","shu","o'sha","ham","lekin","uchun","bilan","siz","biz","ular",
+    "nima","qachon","qanday","qayerda","qaysi","bir","birinchi","ikkinchi","uchinchi","haqida",
+}
+RU_STOPWORDS = {
+    "и","но","это","как","что","эта","эти","этот","там","здесь","есть","для",
+    "чтобы","или","если","когда","так","же","чем","где","кто","они","мы","вы",
+    "он","она","оно","их","его","ее","сам","сама","само","тоже","очень","после",
+    "перед","при","над","под","лишь","раз","уже","ещё","бы","был","была","были",
+    "будет","будут","который","какой","такой","этого","этой","этом","этих",
+}
+STOPWORDS = EN_STOPWORDS | UZ_STOPWORDS | RU_STOPWORDS
+NORMALIZE_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+MULTISPACE_RE = re.compile(r"\s+", re.UNICODE)
 
 
 def _extract_keywords(text: str, language: Optional[str] = None, max_terms: int = 20) -> List[str]:
@@ -109,26 +120,36 @@ class QuizGenerator:
     ) -> Dict[str, Any]:
         # Load chunks
         chunks = await _fetch_chunks_texts(chunk_ids)
-        # Infer language and script preference (title/description only)
-        def _contains_cyrillic(s: str) -> bool:
-            return any('\u0400' <= ch <= '\u04FF' for ch in (s or ""))
+        # Determine language using topic metadata and sampled content
+        chunk_language_votes: list[str] = []
+        for chunk in chunks:
+            if isinstance(chunk, dict):
+                code = normalize_language_code(chunk.get("language"))
+                if code:
+                    chunk_language_votes.append(code)
 
-        def _contains_uzbek_cyrillic(s: str) -> bool:
-            uz_chars = set("ўқғҳЎҚҒҲ")
-            return any(ch in uz_chars for ch in (s or ""))
+        detection_samples: list[str] = []
+        if topic_title:
+            detection_samples.append(topic_title)
+        if topic_description:
+            detection_samples.append(topic_description)
+        if topic_context:
+            detection_samples.append(topic_context[:1200])
+        for chunk in chunks[:5]:
+            if isinstance(chunk, dict):
+                snippet = (chunk.get("text") or "")[:400]
+                if snippet and snippet.strip():
+                    detection_samples.append(snippet)
 
-        topic_text = ((topic_title or "") + " " + (topic_description or "")).strip()
-        inferred_lang = None
-        if topic_text:
-            if _contains_cyrillic(topic_text):
-                # Distinguish Uzbek Cyrillic vs Russian
-                inferred_lang = "uz-Cyrl" if _contains_uzbek_cyrillic(topic_text) else "ru"
-            else:
-                # No Cyrillic present: do not force Uzbek by default
-                inferred_lang = None
-
-        # Do NOT infer from chunks; rely only on title/description (or explicit override)
-        language = language_override or inferred_lang or "en"
+        if language_override:
+            language = normalize_language_code(language_override) or "en"
+        else:
+            language = choose_language(
+                detection_samples,
+                fallback="en",
+                votes=chunk_language_votes,
+                min_confidence=0.6,
+            ) or "en"
 
         # Build compact context (truncate if too long)
         joined = "\n\n".join((c["text"] or "").strip() for c in chunks)
@@ -182,9 +203,9 @@ class QuizGenerator:
         lang_lower = (language or "").lower()
         if lang_lower.startswith("uz-latn") or lang_lower == "uz":
             # Default Uzbek to Latin unless explicitly Cyrl
-            script_hint = "Use Uzbek in Latin script (O‘zbek lotin alifbosi). Do not use Cyrillic."
+            script_hint = "Use Uzbek in Latin script (O?zbek lotin alifbosi). Do not use Cyrillic."
         elif lang_lower.startswith("uz-cyrl"):
-            script_hint = "Use Uzbek in Cyrillic script (Ўзбек кирилл алифбоси)."
+            script_hint = "Use Uzbek in Cyrillic script (????? ?????? ????????)."
         else:
             # Do not add Uzbek-specific hints for non-Uzbek languages (e.g., 'ru')
             script_hint = script_hint
@@ -618,6 +639,49 @@ class AnswerEvaluator:
             if s > best:
                 best = s
         return float(best)
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        if not value:
+            return ""
+        lowered = value.lower()
+        cleaned = NORMALIZE_PUNCT_RE.sub(" ", lowered)
+        return MULTISPACE_RE.sub(" ", cleaned).strip()
+
+    @staticmethod
+    def _tokenize(normalized_text: str) -> List[str]:
+        if not normalized_text:
+            return []
+        return [tok for tok in normalized_text.split() if tok and tok not in STOPWORDS]
+
+    def _token_overlap_score(self, user_tokens: List[str], candidate_tokens: List[str]) -> float:
+        if not user_tokens or not candidate_tokens:
+            return 0.0
+        user_set = set(user_tokens)
+        candidate_set = set(candidate_tokens)
+        if not candidate_set:
+            return 0.0
+        jaccard = len(user_set & candidate_set) / max(1, len(user_set | candidate_set))
+        coverage = len(user_set & candidate_set) / max(1, len(candidate_set))
+        return float(max(jaccard, coverage))
+
+    def _best_literal_similarity(self, user_normalized: str, candidate_normalized: List[str]) -> float:
+        if not user_normalized or not candidate_normalized:
+            return 0.0
+        best = 0.0
+        for candidate in candidate_normalized:
+            if not candidate:
+                continue
+            if user_normalized == candidate:
+                return 1.0
+            if user_normalized in candidate or candidate in user_normalized:
+                coverage = min(len(user_normalized), len(candidate)) / max(len(user_normalized), len(candidate))
+                if coverage > best:
+                    best = coverage
+            ratio = SequenceMatcher(None, user_normalized, candidate).ratio()
+            if ratio > best:
+                best = ratio
+        return float(best)
+
 
     @staticmethod
     def _keyword_overlap(user: str, keyword_sets: List[List[str]]) -> float:
@@ -701,20 +765,43 @@ class AnswerEvaluator:
                 else:
                     acc: List[str] = q.get("acceptable_answers") or []
                     kws: List[List[str]] = q.get("acceptable_keywords") or []
-                    best_sim = await self._best_similarity(ua, acc)
+                    best_sim = await self._best_similarity(ua, acc) if acc else 0.0
                     kw_score = self._keyword_overlap(ua, kws)
                     ctx_score = await self._context_support(ua, q.get("source_chunk_ids") or [])
-                    # Weighting; stricter for short_answer
+                    normalized_expected = [self._normalize_text(ans) for ans in acc]
+                    normalized_user = self._normalize_text(ua)
+                    literal_score = self._best_literal_similarity(normalized_user, normalized_expected)
+                    user_tokens = self._tokenize(normalized_user)
+                    token_score = 0.0
+                    if normalized_expected:
+                        token_scores = [
+                            self._token_overlap_score(user_tokens, self._tokenize(ans))
+                            for ans in normalized_expected
+                        ]
+                        if token_scores:
+                            token_score = max(token_scores)
+                    base_similarity = max(best_sim, literal_score)
                     if qtype == "short_answer":
-                        score = 0.7*best_sim + 0.3*kw_score
+                        score = (
+                            0.5 * base_similarity
+                            + 0.25 * token_score
+                            + 0.15 * kw_score
+                            + 0.10 * ctx_score
+                        )
                     else:
-                        score = 0.6*best_sim + 0.2*kw_score + 0.2*ctx_score
+                        score = (
+                            0.45 * base_similarity
+                            + 0.20 * token_score
+                            + 0.20 * kw_score
+                            + 0.15 * ctx_score
+                        )
+                    score = max(score, literal_score, token_score, best_sim)
                     score = float(min(1.0, max(0.0, score)))
-                    verdict = "correct" if score >= 0.75 else ("partial" if score >= 0.55 else "incorrect")
+                    verdict = "correct" if score >= 0.78 else ("partial" if score >= 0.55 else "incorrect")
                     explanation = (
-                        f"Similarity={best_sim:.2f}, keywords={kw_score:.2f}, context={ctx_score:.2f}."
+                        f"emb={best_sim:.2f}, literal={literal_score:.2f}, "
+                        f"tokens={token_score:.2f}, keywords={kw_score:.2f}, context={ctx_score:.2f}"
                     )
-
             details.append({
                 "question_id": qid,
                 "verdict": verdict,
@@ -736,7 +823,7 @@ class AnswerEvaluator:
         chunks = await _fetch_chunks_texts(chunk_ids)
         joined = "\n\n".join((c["text"] or "").strip() for c in chunks if c.get("text"))
         if not joined:
-            # No context — ask model to propose concise canonical answers from the question itself
+            # No context - ask model to propose concise canonical answers from the question itself
             joined = ""
         if len(joined) > 16000:
             joined = joined[:16000] + "..."
@@ -878,7 +965,7 @@ class AnswerEvaluator:
                 content_questions.append({**match, "id": qid})
                 answers.append({"question_id": qid, "answer": uans})
             else:
-                # No exact prompt match — fallback by creating minimal spec via context of stored quiz
+                # No exact prompt match - fallback by creating minimal spec via context of stored quiz
                 # Try to use union of all chunk ids from spec for some context support
                 chunk_union = []
                 try:

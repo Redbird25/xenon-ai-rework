@@ -52,6 +52,7 @@ prometheus-client
 # opentelemetry-instrumentation-fastapi
 
 # Utils
+langdetect
 tiktoken
 beautifulsoup4
 lxml
